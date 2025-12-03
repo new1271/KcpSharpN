@@ -8,6 +8,9 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "方案項目", "方案項目", "{C0AD33CB-5297-4C7C-9C18-360C50FA022F}"
 	ProjectSection(SolutionItems) = preProject
 		.editorconfig = .editorconfig
+		LICENSE.txt = LICENSE.txt
+		README.md = README.md
+		README.zh.md = README.zh.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcpSharpN.Test", "KcpSharpN.Test\KcpSharpN.Test.csproj", "{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}"
