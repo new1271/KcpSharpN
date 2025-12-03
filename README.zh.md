@@ -1,5 +1,5 @@
 # KcpSharpN
-[English version](https://github.com/new1271/kcp/blob/master/README.md) <br/>
+[English version](https://github.com/new1271/KcpSharpN/blob/master/README.md) <br/>
 ## 簡介
 KcpSharpN 是一個基於 [原始 KCP 專案](https://github.com/skywind3000/kcp) 的程式碼並手動翻譯成 C# 版本的協定實現程式庫<br/>
 ## 什麼是 KCP
