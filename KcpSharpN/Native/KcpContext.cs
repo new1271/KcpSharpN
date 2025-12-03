@@ -1,9 +1,12 @@
-﻿namespace KcpSharpN.Native
+﻿using System.Runtime.InteropServices;
+
+namespace KcpSharpN.Native
 {
     //---------------------------------------------------------------------
     // IKCPCB
     //---------------------------------------------------------------------
-    public unsafe struct KcpConnection
+    [StructLayout(LayoutKind.Sequential, Pack = 8)]
+    public unsafe struct KcpContext
     {
         public uint conv, mtu, mss, state;
         public uint snd_una, snd_nxt, rcv_nxt;
@@ -28,8 +31,8 @@
         public int fastresend;
         public int fastlimit;
         public int nocwnd, stream;
-        public int logmask;
-        public delegate* unmanaged[Cdecl]<byte*, int, KcpConnection*, void*, int> output;
-        public delegate* unmanaged[Cdecl]<byte*, KcpConnection*, void*, void> writelog;
+        public KcpLogFlags logmask;
+        public delegate* unmanaged[Cdecl]<byte*, int, KcpContext*, void*, int> output;
+        public delegate* unmanaged[Cdecl]<byte*, KcpContext*, void*, void> writelog;
     }
 }

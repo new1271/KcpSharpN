@@ -1,20 +1,31 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.14.36717.8 d17.14
+# Visual Studio Version 18
+VisualStudioVersion = 18.3.11222.16 d18.3
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcpSharpN", "KcpSharpN\KcpSharpN.csproj", "{1AA90A27-A045-47CD-849D-3D9301D77294}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "方案項目", "方案項目", "{C0AD33CB-5297-4C7C-9C18-360C50FA022F}"
+	ProjectSection(SolutionItems) = preProject
+		.editorconfig = .editorconfig
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "KcpSharpN.Test", "KcpSharpN.Test\KcpSharpN.Test.csproj", "{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		Debug|Any CPU = Debug|Any CPU
-		Release|Any CPU = Release|Any CPU
+		Debug|x64 = Debug|x64
+		Release|x64 = Release|x64
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{1AA90A27-A045-47CD-849D-3D9301D77294}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1AA90A27-A045-47CD-849D-3D9301D77294}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1AA90A27-A045-47CD-849D-3D9301D77294}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1AA90A27-A045-47CD-849D-3D9301D77294}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1AA90A27-A045-47CD-849D-3D9301D77294}.Debug|x64.ActiveCfg = Debug|x64
+		{1AA90A27-A045-47CD-849D-3D9301D77294}.Debug|x64.Build.0 = Debug|x64
+		{1AA90A27-A045-47CD-849D-3D9301D77294}.Release|x64.ActiveCfg = Release|x64
+		{1AA90A27-A045-47CD-849D-3D9301D77294}.Release|x64.Build.0 = Release|x64
+		{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}.Debug|x64.ActiveCfg = Debug|x64
+		{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}.Debug|x64.Build.0 = Debug|x64
+		{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}.Release|x64.ActiveCfg = Release|x64
+		{3FE45AC9-78CE-4C30-8A04-19D88FDEDF22}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

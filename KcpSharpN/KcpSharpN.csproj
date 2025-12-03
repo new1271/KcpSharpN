@@ -1,23 +1,27 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>disable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
+	<PropertyGroup>
+		<TargetFramework>net8.0</TargetFramework>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<Platforms>AnyCPU;x64</Platforms>
+	</PropertyGroup>
 
-  <ItemGroup>
-    <PackageReference Include="Fody" Version="6.9.3">
-      <PrivateAssets>all</PrivateAssets>
-      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-    </PackageReference>
-    <PackageReference Include="InlineMethod.Fody" Version="0.8.7" />
-  </ItemGroup>
+	<ItemGroup>
+		<Compile Remove="Internal\**" />
+		<EmbeddedResource Remove="Internal\**" />
+		<None Remove="Internal\**" />
+	</ItemGroup>
 
-  <ItemGroup>
-    <Folder Include="Internal\" />
-  </ItemGroup>
+	<ItemGroup>
+		<PackageReference Include="Fody" Version="6.9.3">
+			<PrivateAssets>all</PrivateAssets>
+			<IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+		</PackageReference>
+		<PackageReference Include="InlineIL.Fody" Version="1.10.1" PrivateAssets="All"/>
+		<PackageReference Include="InlineMethod.Fody" Version="0.8.7" PrivateAssets="All" />
+	</ItemGroup>
 
 	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
 		<Optimize>False</Optimize>
@@ -26,6 +30,7 @@
 		<ProduceReferenceAssembly>true</ProduceReferenceAssembly>
 		<WeaverConfiguration>
 			<Weavers>
+				<InlineIL />
 			</Weavers>
 		</WeaverConfiguration>
 	</PropertyGroup>
@@ -42,7 +47,6 @@
 			<Weavers>
 				<InlineIL />
 				<InlineMethod />
-				<Absence />
 			</Weavers>
 		</WeaverConfiguration>
 	</PropertyGroup>

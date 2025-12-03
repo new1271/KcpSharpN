@@ -1,11 +1,10 @@
 ﻿using System;
-using System.Runtime.CompilerServices;
 
 using InlineMethod;
 
 #pragma warning disable IDE1006
 
-namespace KcpSharpN.Internal
+namespace KcpSharpN.Native
 {
     unsafe partial class Kcp
     {
@@ -34,7 +33,7 @@ namespace KcpSharpN.Internal
         private static byte* ikcp_encode16u(byte* p, ushort w)
         {
             if (BitConverter.IsLittleEndian)
-                Unsafe.CopyBlockUnaligned(p, &w, sizeof(ushort));
+                memcpy(p, &w, sizeof(ushort));
             else
             {
                 *(p + 0) = unchecked((byte)(w & 255));
@@ -49,7 +48,7 @@ namespace KcpSharpN.Internal
         private static byte* ikcp_decode16u(byte* p, ushort* w)
         {
             if (BitConverter.IsLittleEndian)
-                Unsafe.CopyBlockUnaligned(w, p, sizeof(ushort));
+                memcpy(w, p, sizeof(ushort));
             else
                 *w = unchecked((ushort)(*(p + 0) + (*(p + 1) << 8)));
             p += sizeof(ushort);
@@ -61,7 +60,7 @@ namespace KcpSharpN.Internal
         private static byte* ikcp_encode32u(byte* p, uint l)
         {
             if (BitConverter.IsLittleEndian)
-                Unsafe.CopyBlockUnaligned(p, &l, sizeof(uint));
+                memcpy(p, &l, sizeof(uint));
             else
             {
                 *(p + 0) = (byte)((l >> 0) & 0xff);
@@ -78,7 +77,7 @@ namespace KcpSharpN.Internal
         private static byte* ikcp_decode32u(byte* p, uint* l)
         {
             if (BitConverter.IsLittleEndian)
-                Unsafe.CopyBlockUnaligned(l, p, sizeof(uint));
+                memcpy(l, p, sizeof(uint));
             else
             {
                 uint temp = *(p + 3);
@@ -100,6 +99,6 @@ namespace KcpSharpN.Internal
         private static uint _ibound_(uint lower, uint middle, uint upper) => _imin_(_imax_(lower, middle), upper);
 
         [Inline(InlineBehavior.Remove)]
-        private static long _itimediff(uint later, uint earlier) => later - earlier;
+        private static int _itimediff(uint later, uint earlier) => unchecked((int)(later - earlier));
     }
 }

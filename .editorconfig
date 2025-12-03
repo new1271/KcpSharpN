@@ -1,0 +1,29 @@
+﻿[*.cs]
+
+
+# IDE0290: 使用主要建構函式
+dotnet_diagnostic.IDE0290.severity = none
+
+# IDE0032: 使用 Auto 屬性
+dotnet_diagnostic.IDE0032.severity = none
+
+# IDE0090: 使用 'new(...)'
+dotnet_diagnostic.IDE0090.severity = none
+
+# IDE0028: 簡化集合初始化
+dotnet_diagnostic.IDE0028.severity = none
+
+# IDE0301: 簡化集合初始化
+dotnet_diagnostic.IDE0301.severity = none
+
+# IDE0305: 簡化集合初始化
+dotnet_diagnostic.IDE0305.severity = none
+
+# IDE0057: 使用範圍運算子
+dotnet_diagnostic.IDE0057.severity = none
+
+# SYSLIB1054: 使用 'LibraryImportAttribute' 而非 'DllImportAttribute' 在編譯時間產生 P/Invoke 封送處理程式碼
+dotnet_diagnostic.SYSLIB1054.severity = none
+
+# IDE0300: 簡化集合初始化
+dotnet_diagnostic.IDE0300.severity = none
