@@ -1,4 +1,4 @@
-﻿namespace KcpSharpN.Internal
+﻿namespace KcpSharpN.Native
 {
     internal static class Constants
     {

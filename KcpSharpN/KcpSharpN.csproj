@@ -15,6 +15,10 @@
     <PackageReference Include="InlineMethod.Fody" Version="0.8.7" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="Internal\" />
+  </ItemGroup>
+
 	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
 		<Optimize>False</Optimize>
 		<DebugType>pdbonly</DebugType>
