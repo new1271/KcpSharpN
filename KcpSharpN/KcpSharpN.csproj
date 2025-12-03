@@ -1,0 +1,46 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Fody" Version="6.9.3">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="InlineMethod.Fody" Version="0.8.7" />
+  </ItemGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Debug'">
+		<Optimize>False</Optimize>
+		<DebugType>pdbonly</DebugType>
+		<AccelerateBuildsInVisualStudio>true</AccelerateBuildsInVisualStudio>
+		<ProduceReferenceAssembly>true</ProduceReferenceAssembly>
+		<WeaverConfiguration>
+			<Weavers>
+			</Weavers>
+		</WeaverConfiguration>
+	</PropertyGroup>
+
+	<PropertyGroup Condition="'$(Configuration)'=='Release'">
+		<Optimize>True</Optimize>
+		<DebugType>none</DebugType>
+		<AccelerateBuildsInVisualStudio>false</AccelerateBuildsInVisualStudio>
+		<ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+		<AllowedReferenceRelatedFileExtensions>
+			-
+		</AllowedReferenceRelatedFileExtensions>
+		<WeaverConfiguration>
+			<Weavers>
+				<InlineIL />
+				<InlineMethod />
+				<Absence />
+			</Weavers>
+		</WeaverConfiguration>
+	</PropertyGroup>
+
+</Project>
