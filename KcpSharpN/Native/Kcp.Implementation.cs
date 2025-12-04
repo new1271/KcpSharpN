@@ -161,6 +161,7 @@ namespace KcpSharpN.Native
             KcpContext* kcp = (KcpContext*)ikcp_malloc(SizeOf<KcpContext>());
             if (kcp == null)
                 return null;
+
             kcp->conv = conv;
             kcp->user = user;
             kcp->snd_una = 0;

@@ -34,5 +34,19 @@ namespace KcpSharpN.Native
         public KcpLogFlags logmask;
         public delegate* unmanaged[Cdecl]<byte*, int, KcpContext*, void*, int> output;
         public delegate* unmanaged[Cdecl]<byte*, KcpContext*, void*, void> writelog;
+
+        public KcpPipeOption ToPipeOption()
+            => new KcpPipeOption()
+            {
+                StreamMode = stream != 0,
+                ConversationId = conv,
+                Mtu = mtu,
+                SendWindow = snd_wnd,
+                ReceiveWindow = rcv_wnd,
+                NoDelay = nodelay,
+                Interval = interval,
+                FastResend = fastresend,
+                CongestionControl = nocwnd
+            };
     }
 }
