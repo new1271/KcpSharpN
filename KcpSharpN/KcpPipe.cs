@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Buffers;
+using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -56,7 +57,7 @@ namespace KcpSharpN
         public unsafe bool TryReceive<T>(out T result) where T : unmanaged
         {
             Unsafe.SkipInit(out result);
-            
+
             KcpContext* context = _context;
             Span<byte> resultSpan = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref result, 1));
             if (!TryReceive(resultSpan, out int bytesWritten))
@@ -83,73 +84,81 @@ namespace KcpSharpN
             int bufferLength = buffer.Length;
             byte[]? oldBuffer = _buffer;
             int bufferStart = _bufferStart, bufferEnd = _bufferEnd;
-            if (oldBuffer is null || bufferStart >= bufferEnd)
+            if (oldBuffer is null)
             {
                 bytesWritten = 0;
             }
             else
             {
-                ReadOnlySpan<byte> oldBufferSpan = oldBuffer.AsSpan()[bufferStart..bufferEnd];
-                int oldBufferLength = oldBufferSpan.Length;
-                if (oldBufferLength > bufferLength)
+                if (bufferStart < bufferEnd)
                 {
-                    oldBufferSpan[..bufferLength].CopyTo(buffer);
-                    bytesWritten = bufferLength;
-                    _bufferStart += bufferLength;
-                    return true;
+                    ReadOnlySpan<byte> oldBufferSpan = oldBuffer.AsSpan()[bufferStart..bufferEnd];
+                    int oldBufferLength = oldBufferSpan.Length;
+                    if (oldBufferLength > bufferLength)
+                    {
+                        oldBufferSpan[..bufferLength].CopyTo(buffer);
+                        bytesWritten = bufferLength;
+                        _bufferStart += bufferStart + bufferLength;
+                        return true;
+                    }
+                    oldBufferSpan.CopyTo(buffer);
+                    bytesWritten = oldBufferLength;
                 }
-                oldBufferSpan.CopyTo(buffer);
-                bytesWritten = oldBufferLength;
+                else
+                {
+                    bytesWritten = 0;
+                }
                 _bufferStart = 0;
                 _bufferEnd = 0;
                 _buffer = null;
                 ArrayPool<byte>.Shared.Return(oldBuffer);
             }
+            if (bytesWritten == bufferLength)
+                return true;
             KcpContext* context = _context;
             int status;
             fixed (byte* ptr = buffer)
             {
-                status = Kcp.ikcp_recv(context, ptr, bufferLength - bytesWritten);
+                status = Kcp.ikcp_recv(context, ptr + bytesWritten, bufferLength - bytesWritten);
                 if (status >= 0)
                 {
                     bytesWritten += status;
                     return true;
                 }
             }
-            if (status != -3)
-                return bytesWritten > 0;
-            int size;
-            while ((size = Kcp.ikcp_peeksize(context)) > 0)
+            if (status == -3)
             {
-                oldBuffer = ArrayPool<byte>.Shared.Rent(size);
-                fixed (byte* ptr = oldBuffer)
+                int size;
+                while ((size = Kcp.ikcp_peeksize(context)) >= 0)
                 {
-                    status = Kcp.ikcp_recv(context, ptr, size);
-                    if (status < 0)
+                    oldBuffer = ArrayPool<byte>.Shared.Rent(size);
+                    fixed (byte* ptr = oldBuffer)
                     {
-                        if (status == -3)
-                            continue;
-                        break;
+                        status = Kcp.ikcp_recv(context, ptr, oldBuffer.Length);
+                        if (status < 0)
+                        {
+                            if (status == -3)
+                                continue;
+                            break;
+                        }
                     }
+                    int available = bufferLength - bytesWritten;
+                    if (status > available)
+                    {
+                        oldBuffer.AsSpan()[..available].CopyTo(buffer[bytesWritten..]);
+                        bytesWritten = bufferLength;
+                        _buffer = oldBuffer;
+                        _bufferStart = available;
+                        _bufferEnd = status;
+                    }
+                    else
+                    {
+                        oldBuffer.AsSpan()[..status].CopyTo(buffer[bytesWritten..]);
+                        bytesWritten += status;
+                        ArrayPool<byte>.Shared.Return(oldBuffer);
+                    }
+                    return true;
                 }
-                int available = bufferLength - bytesWritten;
-                if (status > available)
-                {
-                    ReadOnlySpan<byte> bufferSpan = oldBuffer.AsSpan()[..available];
-                    bufferSpan.CopyTo(buffer);
-                    bytesWritten = bufferLength;
-                    _buffer = oldBuffer;
-                    _bufferStart = available;
-                    _bufferEnd = status;
-                }
-                else
-                {
-                    ReadOnlySpan<byte> bufferSpan = oldBuffer.AsSpan()[..status];
-                    bufferSpan.CopyTo(buffer);
-                    bytesWritten += status;
-                    ArrayPool<byte>.Shared.Return(oldBuffer);
-                }
-                return true;
             }
             return bytesWritten > 0;
         }
@@ -177,7 +186,7 @@ namespace KcpSharpN
             Interlocked.Exchange(ref _waitingInputTaskSource, null)?.TrySetResult(true);
         }
 
-        public  Task<bool> WaitForDataReceived()
+        public Task<bool> WaitForDataReceived()
         {
             TaskCompletionSource<bool> completionSource = Interlocked.CompareExchange(ref _waitingInputTaskSource, null, null) ??
                 new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -247,7 +256,7 @@ namespace KcpSharpN
             _bufferStart = 0;
             _bufferEnd = 0;
             if (buffer is not null)
-                ArrayPool<byte>.Shared.Return(buffer);  
+                ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 }
