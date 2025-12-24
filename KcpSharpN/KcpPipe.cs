@@ -10,7 +10,7 @@ using KcpSharpN.Native;
 
 namespace KcpSharpN
 {
-    public abstract class KcpPipe : IDisposable
+    public sealed partial class KcpPipe : IDisposable
     {
         private unsafe readonly KcpContext* _context;
 
@@ -257,10 +257,6 @@ namespace KcpSharpN
         }
 
         protected abstract void HandleOutputPacket(ReadOnlySpan<byte> packet);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static uint GetTimestampAsUInt32()
-            => (uint)(ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Span<byte> CreateBytesSpanFromLocalVariable<T>(scoped ref T reference) where T : unmanaged
