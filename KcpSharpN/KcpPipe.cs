@@ -64,7 +64,7 @@ namespace KcpSharpN
             }
         }
 
-        public async ValueTask<T?> ReceiveAsync<T>() where T : unmanaged
+        public async ValueTask<T?> ReceiveAsync<T>(CancellationToken cancellationToken) where T : unmanaged
         {
             T result = default;
 
@@ -96,7 +96,7 @@ namespace KcpSharpN
             ArrayPool<byte> pool = ArrayPool<byte>.Shared;
 
         FetchNewData:
-            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: true);
+            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: true, cancellationToken);
             if (localBuffer is null)
                 return null;
 
@@ -112,13 +112,13 @@ namespace KcpSharpN
             else
             {
                 pool.Return(localBuffer);
-                if (bytesWritten < destinationLength)
+                if (bytesWritten < destinationLength && !cancellationToken.IsCancellationRequested)
                     goto FetchNewData;
             }
             return result;
         }
 
-        public async ValueTask<int?> ReceiveAsync(Memory<byte> buffer, bool fillAll)
+        public async ValueTask<int?> ReceiveAsync(Memory<byte> buffer, bool fillAll, CancellationToken cancellationToken)
         {
             byte[]? localBuffer = _buffer;
             int destinationLength = buffer.Length, bufferStart = _bufferStart, bufferEnd = _bufferEnd;
@@ -143,7 +143,7 @@ namespace KcpSharpN
             ArrayPool<byte> pool = ArrayPool<byte>.Shared;
 
         FetchNewData:
-            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: fillAll || bytesWritten == 0);
+            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: fillAll || bytesWritten == 0, cancellationToken);
             if (localBuffer is null)
                 return bytesWritten;
 
@@ -159,7 +159,7 @@ namespace KcpSharpN
             else
             {
                 pool.Return(localBuffer);
-                if (fillAll && bytesWritten < destinationLength)
+                if (fillAll && bytesWritten < destinationLength && !cancellationToken.IsCancellationRequested)
                     goto FetchNewData;
             }
             return bytesWritten;
@@ -188,11 +188,41 @@ namespace KcpSharpN
             Interlocked.Exchange(ref _waitingInputTaskSource, null)?.TrySetResult(true);
         }
 
-        public Task<bool> WaitForDataReceived()
+        public async Task<bool> WaitForDataReceived()
         {
             TaskCompletionSource<bool> completionSource = Interlocked.CompareExchange(ref _waitingInputTaskSource, null, null) ??
                 new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            return (Interlocked.CompareExchange(ref _waitingInputTaskSource, completionSource, null) ?? completionSource).Task;
+            completionSource = Interlocked.CompareExchange(ref _waitingInputTaskSource, completionSource, null) ?? completionSource;
+            try
+            {
+                await completionSource.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        public async ValueTask<bool> WaitForDataReceived(CancellationToken cancellationToken)
+        {
+            TaskCompletionSource<bool> completionSource = Interlocked.CompareExchange(ref _waitingInputTaskSource, null, null) ??
+                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            completionSource = Interlocked.CompareExchange(ref _waitingInputTaskSource, completionSource, null) ?? completionSource;
+            CancellationTokenRegistration registration = cancellationToken.Register(() => completionSource.TrySetCanceled());
+            try
+            {
+                await completionSource.Task;
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+            finally
+            {
+                registration.Dispose();
+            }
+            return true;
         }
 
         public Task<bool> WaitForDataReceived(int timeout)
@@ -258,7 +288,7 @@ namespace KcpSharpN
             return false;
         }
 
-        private async ValueTask<(byte[]? buffer, int bytesWritten)> FetchDataIntoNewBufferAsync(ArrayPool<byte> pool, bool blocked)
+        private async ValueTask<(byte[]? buffer, int bytesWritten)> FetchDataIntoNewBufferAsync(ArrayPool<byte> pool, bool blocked, CancellationToken cancellationToken)
         {
         Head:
             unsafe
@@ -296,10 +326,10 @@ namespace KcpSharpN
             }
 
         TryWait:
-            if (blocked)
+            if (blocked && !cancellationToken.IsCancellationRequested)
             {
-                await WaitForDataReceived();
-                goto Head;
+                if (await WaitForDataReceived(cancellationToken))
+                    goto Head;
             }
             goto Failed;
 
