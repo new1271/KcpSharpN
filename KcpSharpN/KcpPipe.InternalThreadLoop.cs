@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 using KcpSharpN.Native;
 
@@ -11,24 +12,28 @@ namespace KcpSharpN
 {
     partial class KcpPipe
     {
-        private sealed unsafe class InternalThreadLoop : IDisposable
+        private sealed class InternalThreadLoop : IDisposable
         {
             private static ulong _idCounter = 0;
 
-            private readonly MemoryPool<byte> _memoryPool = MemoryPool<byte>.Shared;
-            private readonly ConcurrentQueue<IMemoryOwner<byte>> _inputQueue, _sendQueue, _receiveQueue;
+            private readonly ArrayPool<byte> _pool = ArrayPool<byte>.Shared;
+            private readonly ConcurrentQueue<ArraySegment<byte>> _inputQueue, _sendQueue, _receiveQueue;
+            private readonly ConcurrentQueue<TaskCompletionSource<bool>> _receiveAwaiterQueue;
+            private readonly SemaphoreSlim _receiveBarrier = new SemaphoreSlim(1, 1);
             private readonly Thread _thread;
-            private readonly KcpContext* _context;
+            private readonly unsafe KcpContext* _context;
 
+            private ArraySegment<byte> _currentSegment;
             private ulong _disposed = 0UL;
 
-            public InternalThreadLoop(KcpContext* context)
+            public unsafe InternalThreadLoop(KcpContext* context)
             {
                 _context = context;
-                _memoryPool = MemoryPool<byte>.Shared;
-                _inputQueue = new ConcurrentQueue<IMemoryOwner<byte>>();
-                _sendQueue = new ConcurrentQueue<IMemoryOwner<byte>>();
-                _receiveQueue = new ConcurrentQueue<IMemoryOwner<byte>>();
+                _pool = ArrayPool<byte>.Shared;
+                _inputQueue = new ConcurrentQueue<ArraySegment<byte>>();
+                _sendQueue = new ConcurrentQueue<ArraySegment<byte>>();
+                _receiveQueue = new ConcurrentQueue<ArraySegment<byte>>();
+                _receiveAwaiterQueue = new ConcurrentQueue<TaskCompletionSource<bool>>();
                 _thread = new Thread(DoThreadLoop)
                 {
                     IsBackground = true,
@@ -37,12 +42,222 @@ namespace KcpSharpN
                 };
             }
 
-            private void DoThreadLoop()
+            public void Input(ReadOnlySpan<byte> data)
             {
-                MemoryPool<byte> memoryPool = _memoryPool;
-                ConcurrentQueue<IMemoryOwner<byte>> inputQueue = _inputQueue;
-                ConcurrentQueue<IMemoryOwner<byte>> sendQueue = _sendQueue;
-                ConcurrentQueue<IMemoryOwner<byte>> receiveQueue = _receiveQueue;
+                int length = data.Length;
+                byte[] buffer = _pool.Rent(length);
+                data.CopyTo(buffer.AsSpan());
+                _inputQueue.Enqueue(new ArraySegment<byte>(buffer, 0, length));
+            }
+
+            public void Send(ReadOnlySpan<byte> data)
+            {
+                int length = data.Length;
+                byte[] buffer = _pool.Rent(length);
+                data.CopyTo(buffer.AsSpan());
+                _sendQueue.Enqueue(new ArraySegment<byte>(buffer, 0, length));
+            }
+
+            public bool TryReceive(Span<byte> destination, out int bytesWritten)
+            {
+                SemaphoreSlim barrier = _receiveBarrier;
+                ConcurrentQueue<ArraySegment<byte>> receiveQueue = _receiveQueue;
+                ArrayPool<byte> pool = _pool;
+                barrier.Wait();
+                try
+                {
+                    Thread.MemoryBarrier();
+                    ArraySegment<byte> segment = _currentSegment;
+                    byte[]? array = segment.Array;
+                    if (array is null)
+                    {
+                        bytesWritten = 0;
+                    }
+                    else
+                    {
+                        Span<byte> span = segment.AsSpan();
+                        int length = span.Length;
+                        bytesWritten = Math.Min(length, destination.Length);
+                        span.Slice(0, bytesWritten).CopyTo(destination);
+                        if (bytesWritten < length)
+                        {
+                            _currentSegment = segment.Slice(bytesWritten);
+                            return true;
+                        }
+                        pool.Return(array);
+                        _currentSegment = default;
+                        if (bytesWritten == length)
+                            return true;
+                        destination = destination.Slice(bytesWritten);
+                    }
+                    while (receiveQueue.TryDequeue(out segment))
+                    {
+                        Thread.MemoryBarrier();
+                        array = segment.Array;
+                        if (array is null || segment.Count <= 0)
+                            continue;
+                        Span<byte> span = segment.AsSpan();
+                        int length = span.Length;
+                        int bytesToWrite = Math.Min(length, destination.Length);
+                        span.Slice(0, bytesToWrite).CopyTo(destination);
+                        bytesWritten += bytesToWrite;
+                        if (bytesToWrite < length)
+                        {
+                            _currentSegment = segment.Slice(bytesToWrite);
+
+                            return true;
+                        }
+                        pool.Return(array);
+                        if (bytesWritten == length)
+                            return true;
+                        destination = destination.Slice(bytesToWrite);
+                    }
+                }
+                finally
+                {
+                    barrier.Release();
+                }
+                return bytesWritten > 0;
+            }
+
+            public async ValueTask<int?> TryReceiveAsync(Memory<byte> destination, CancellationToken cancellationToken)
+            {
+                SemaphoreSlim barrier = _receiveBarrier;
+                ConcurrentQueue<ArraySegment<byte>> receiveQueue = _receiveQueue;
+                ArrayPool<byte> pool = _pool;
+                await barrier.WaitAsync(cancellationToken).ConfigureAwait(continueOnCapturedContext: false);
+                int bytesWritten = 0;
+                try
+                {
+                    Thread.MemoryBarrier();
+                    ArraySegment<byte> segment = _currentSegment;
+                    byte[]? array = segment.Array;
+                    if (array is not null)
+                    {
+                        Span<byte> span = segment.AsSpan();
+                        int length = span.Length;
+                        bytesWritten = Math.Min(length, destination.Length);
+                        span.Slice(0, bytesWritten).CopyTo(destination.Span);
+                        if (bytesWritten < length)
+                        {
+                            _currentSegment = segment.Slice(bytesWritten);
+                            return bytesWritten;
+                        }
+                        pool.Return(array);
+                        _currentSegment = default;
+                        if (bytesWritten == length)
+                            return bytesWritten;
+                        destination = destination.Slice(bytesWritten);
+                    }
+                    while (receiveQueue.TryDequeue(out segment))
+                    {
+                        Thread.MemoryBarrier();
+                        array = segment.Array;
+                        if (array is null || segment.Count <= 0)
+                            continue;
+                        Span<byte> span = segment.AsSpan();
+                        int length = span.Length;
+                        int bytesToWrite = Math.Min(length, destination.Length);
+                        span.Slice(0, bytesToWrite).CopyTo(destination.Span);
+                        bytesWritten += bytesToWrite;
+                        if (bytesToWrite < length)
+                        {
+                            _currentSegment = segment.Slice(bytesToWrite);
+                            return bytesWritten;
+                        }
+                        pool.Return(array);
+                        if (bytesWritten >= length)
+                            return bytesWritten;
+                        destination = destination.Slice(bytesToWrite);
+                    }
+                }
+                finally
+                {
+                    barrier.Release();
+                }
+                return bytesWritten > 0 ? bytesWritten : null;
+            }
+
+            public bool Receive(Span<byte> destination, out int bytesWritten)
+            {
+                int length = destination.Length;
+                if (length <= 0)
+                {
+                    bytesWritten = length;
+                    return true;
+                }
+                bytesWritten = 0;
+                while (Interlocked.Read(ref _disposed) == 0UL)
+                {
+                    if (TryReceive(destination, out int bytesWrittenInOneTime))
+                    {
+                        bytesWritten += bytesWrittenInOneTime;
+                        if (bytesWritten >= length)
+                            return true;
+                        destination = destination.Slice(bytesWrittenInOneTime);
+                        continue;
+                    }
+                    WaitToReceive();
+                }
+                return false;
+            }
+
+            public async ValueTask<int?> ReceiveAsync(Memory<byte> destination, CancellationToken cancellationToken)
+            {
+                int length = destination.Length;
+                if (length <= 0)
+                {
+                    return length;
+                }
+                int bytesWritten = 0;
+                while (Interlocked.Read(ref _disposed) == 0UL)
+                {
+                    int? bytesWrittenInOneTimeOptional = await TryReceiveAsync(destination, cancellationToken).ConfigureAwait(false);
+                    if (bytesWrittenInOneTimeOptional is not null)
+                    {
+                        int bytesWrittenInOneTime = bytesWrittenInOneTimeOptional.Value;
+                        bytesWritten += bytesWrittenInOneTime;
+                        if (bytesWritten >= length)
+                            return bytesWritten;
+                        destination = destination.Slice(bytesWrittenInOneTime);
+                        continue;
+                    }
+                    await WaitToReceiveAsync(cancellationToken).ConfigureAwait(false);
+                }
+                return null;
+            }
+
+            public bool WaitToReceive() => WaitToReceiveAsync().GetAwaiter().GetResult();
+
+            public Task<bool> WaitToReceiveAsync()
+            {
+                TaskCompletionSource<bool> awaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _receiveAwaiterQueue.Enqueue(awaiter);
+                return awaiter.Task;
+            }
+
+            public async ValueTask<bool> WaitToReceiveAsync(CancellationToken cancellationToken)
+            {
+                TaskCompletionSource<bool> awaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _receiveAwaiterQueue.Enqueue(awaiter);
+                CancellationTokenRegistration registration = cancellationToken.Register(() => awaiter.TrySetCanceled(cancellationToken), useSynchronizationContext: false);
+                try
+                {
+                    return await awaiter.Task;
+                }
+                finally
+                {
+                    registration.Dispose();
+                }
+            }
+
+            private unsafe void DoThreadLoop()
+            {
+                ArrayPool<byte> pool = _pool;
+                ConcurrentQueue<ArraySegment<byte>> inputQueue = _inputQueue;
+                ConcurrentQueue<ArraySegment<byte>> sendQueue = _sendQueue;
+                ConcurrentQueue<ArraySegment<byte>> receiveQueue = _receiveQueue;
+                ConcurrentQueue<TaskCompletionSource<bool>> receiveAwaiterQueue = _receiveAwaiterQueue;
                 KcpContext* context = _context;
 
                 while (Interlocked.Read(ref _disposed) == 0UL)
@@ -56,50 +271,70 @@ namespace KcpSharpN
                     }
                     Kcp.ikcp_update(context, timestamp);
 
-                    while (inputQueue.TryDequeue(out IMemoryOwner<byte>? bufferOwner))
+                    if (inputQueue.TryDequeue(out ArraySegment<byte> segment))
                     {
-                        try
+                        Thread.MemoryBarrier();
+                        do
                         {
-                            Span<byte> buffer = bufferOwner.Memory.Span;
-                            fixed (byte* ptr = buffer)
-                                Kcp.ikcp_input(context, ptr, buffer.Length);
-                        }
-                        finally
-                        {
-                            bufferOwner.Dispose();
-                        }
+                            byte[]? buffer = segment.Array;
+                            if (buffer is null)
+                                continue;
+                            try
+                            {
+                                Span<byte> span = segment.AsSpan();
+                                fixed (byte* ptr = span)
+                                    Kcp.ikcp_input(context, ptr, span.Length);
+                            }
+                            finally
+                            {
+                                pool.Return(buffer);
+                            }
+                        } while (inputQueue.TryDequeue(out segment));
                     }
 
-                    while (sendQueue.TryDequeue(out IMemoryOwner<byte>? bufferOwner))
+                    if (sendQueue.TryDequeue(out segment))
                     {
-                        try
+                        Thread.MemoryBarrier();
+                        do
                         {
-                            Span<byte> buffer = bufferOwner.Memory.Span;
-                            fixed (byte* ptr = buffer)
-                                Kcp.ikcp_send(context, ptr, buffer.Length);
-                        }
-                        finally
-                        {
-                            bufferOwner.Dispose();
-                        }
+                            byte[]? buffer = segment.Array;
+                            if (buffer is null)
+                                continue;
+                            try
+                            {
+                                Span<byte> span = segment.AsSpan();
+                                fixed (byte* ptr = span)
+                                    Kcp.ikcp_send(context, ptr, span.Length);
+                            }
+                            finally
+                            {
+                                pool.Return(buffer);
+                            }
+                        } while (inputQueue.TryDequeue(out segment));
                     }
 
                     int receivedLength;
-                    while ((receivedLength = Kcp.ikcp_peeksize(context)) >= 0)
+                    if ((receivedLength = Kcp.ikcp_peeksize(context)) >= 0)
                     {
-                        if (receivedLength == 0)
+                        do
                         {
-                            Kcp.ikcp_recv(context, null, 0);
-                            continue;
+                            if (receivedLength == 0)
+                            {
+                                Kcp.ikcp_recv(context, null, 0);
+                                continue;
+                            }
+                            byte[] buffer = pool.Rent(receivedLength);
+                            fixed (byte* ptr = buffer)
+                            {
+                                int status = Kcp.ikcp_recv(context, ptr, receivedLength);
+                                Debug.Assert(status == receivedLength);
+                            }
+                            receiveQueue.Enqueue(new ArraySegment<byte>(buffer, 0, receivedLength));
                         }
-                        IMemoryOwner<byte> bufferOwner = memoryPool.Rent(receivedLength);
-                        Span<byte> buffer = bufferOwner.Memory.Span;
-                        fixed (byte* ptr = buffer)
-                        {
-                            int status = Kcp.ikcp_recv(context, ptr, receivedLength);
-                            Debug.Assert(status == receivedLength);
-                        }
-                        receiveQueue.Enqueue(bufferOwner);
+                        while ((receivedLength = Kcp.ikcp_peeksize(context)) >= 0);
+                        Thread.MemoryBarrier();
+                        while (receiveAwaiterQueue.TryDequeue(out TaskCompletionSource<bool>? awaiter))
+                            awaiter.TrySetResult(true);
                     }
                 }
 
@@ -116,6 +351,24 @@ namespace KcpSharpN
                 if (Interlocked.Exchange(ref _disposed, 1UL) != 0UL)
                     return;
                 Debug.WriteLine($"[{nameof(KcpPipe)}.{nameof(InternalThreadLoop)}] Disposing internal thread loop... (Thread Name: {_thread.Name})");
+
+                while (_receiveAwaiterQueue.TryDequeue(out TaskCompletionSource<bool>? awaiter))
+                    awaiter.TrySetResult(false);
+
+                SemaphoreSlim barrier = _receiveBarrier;
+                barrier.Wait();
+                try
+                {
+                    ArraySegment<byte> segment = _currentSegment;
+                    byte[]? array = segment.Array;
+                    if (array is not null)
+                        _pool.Return(array);
+                }
+                finally
+                {
+                    barrier.Release();
+                    barrier.Dispose();
+                }
             }
 
             ~InternalThreadLoop()
