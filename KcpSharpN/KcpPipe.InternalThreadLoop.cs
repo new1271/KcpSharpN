@@ -50,7 +50,10 @@ namespace KcpSharpN
                     uint timestamp = GetTimestampAsUInt32();
                     uint nextTimestamp = Kcp.ikcp_check(context, timestamp);
                     if (nextTimestamp > timestamp)
+                    {
                         Thread.Sleep((int)(nextTimestamp - timestamp));
+                        timestamp = GetTimestampAsUInt32();
+                    }
                     Kcp.ikcp_update(context, timestamp);
 
                     while (inputQueue.TryDequeue(out IMemoryOwner<byte>? bufferOwner))
@@ -73,7 +76,7 @@ namespace KcpSharpN
                         {
                             Span<byte> buffer = bufferOwner.Memory.Span;
                             fixed (byte* ptr = buffer)
-                                Kcp.ikcp_input(context, ptr, buffer.Length);
+                                Kcp.ikcp_send(context, ptr, buffer.Length);
                         }
                         finally
                         {
