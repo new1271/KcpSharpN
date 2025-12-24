@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Buffers;
-using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -26,11 +26,21 @@ namespace KcpSharpN
         public unsafe KcpPipe(in KcpPipeOption option)
         {
             KcpContext* context = Kcp.ikcp_create(option.ConversationId, (void*)GCHandle.ToIntPtr(GCHandle.Alloc(this, GCHandleType.Normal)));
+            if (context is null)
+                throw new InvalidOperationException("Failed to create KCP context.");
             Kcp.ikcp_setmtu(context, (int)option.Mtu);
             Kcp.ikcp_interval(context, (int)option.Interval);
             Kcp.ikcp_wndsize(context, (int)option.SendWindow, (int)option.ReceiveWindow);
             Kcp.ikcp_nodelay(context, (int)option.NoDelay, (int)option.Interval, option.FastResend, option.CongestionControl);
             Kcp.ikcp_setoutput(context, &HandleOutputPacket);
+            _context = context;
+        }
+
+        public unsafe KcpPipe(KcpContext* context)
+        {
+            if (context is null)
+                throw new ArgumentNullException(nameof(context));
+            Kcp.ikcp_setoutput(_context, &HandleOutputPacket);
             _context = context;
         }
 
@@ -54,113 +64,105 @@ namespace KcpSharpN
             }
         }
 
-        public unsafe bool TryReceive<T>(out T result) where T : unmanaged
+        public async ValueTask<T?> ReceiveAsync<T>() where T : unmanaged
         {
-            Unsafe.SkipInit(out result);
+            T result = default;
 
-            KcpContext* context = _context;
-            Span<byte> resultSpan = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref result, 1));
-            if (!TryReceive(resultSpan, out int bytesWritten))
-                return false;
-            if (bytesWritten < sizeof(T))
-            {
-                byte[]? buffer = _buffer;
-                if (buffer is null)
-                {
-                    buffer = ArrayPool<byte>.Shared.Rent(bytesWritten);
-                    resultSpan[..bytesWritten].CopyTo(buffer.AsSpan()[..bytesWritten]);
-                }
-                else
-                {
-                    _bufferStart -= bytesWritten;
-                }
-                return false;
-            }
-            return true;
-        }
-
-        public unsafe bool TryReceive(Span<byte> buffer, out int bytesWritten)
-        {
-            int bufferLength = buffer.Length;
-            byte[]? oldBuffer = _buffer;
+            byte[]? localBuffer = _buffer;
             int bufferStart = _bufferStart, bufferEnd = _bufferEnd;
-            if (oldBuffer is null)
+            int destinationLength, bytesWritten;
+            unsafe
             {
-                bytesWritten = 0;
-            }
-            else
-            {
-                if (bufferStart < bufferEnd)
+                destinationLength = sizeof(T);
+
+                if (ConsumeBuffer(localBuffer, ref bufferStart, bufferEnd, CreateBytesSpanFromLocalVariable(ref result), out bool outOfBuffer, out bytesWritten))
                 {
-                    ReadOnlySpan<byte> oldBufferSpan = oldBuffer.AsSpan()[bufferStart..bufferEnd];
-                    int oldBufferLength = oldBufferSpan.Length;
-                    if (oldBufferLength > bufferLength)
+                    if (outOfBuffer)
                     {
-                        oldBufferSpan[..bufferLength].CopyTo(buffer);
-                        bytesWritten = bufferLength;
-                        _bufferStart += bufferStart + bufferLength;
-                        return true;
-                    }
-                    oldBufferSpan.CopyTo(buffer);
-                    bytesWritten = oldBufferLength;
-                }
-                else
-                {
-                    bytesWritten = 0;
-                }
-                _bufferStart = 0;
-                _bufferEnd = 0;
-                _buffer = null;
-                ArrayPool<byte>.Shared.Return(oldBuffer);
-            }
-            if (bytesWritten == bufferLength)
-                return true;
-            KcpContext* context = _context;
-            int status;
-            fixed (byte* ptr = buffer)
-            {
-                status = Kcp.ikcp_recv(context, ptr + bytesWritten, bufferLength - bytesWritten);
-                if (status >= 0)
-                {
-                    bytesWritten += status;
-                    return true;
-                }
-            }
-            if (status == -3)
-            {
-                int size;
-                while ((size = Kcp.ikcp_peeksize(context)) >= 0)
-                {
-                    oldBuffer = ArrayPool<byte>.Shared.Rent(size);
-                    fixed (byte* ptr = oldBuffer)
-                    {
-                        status = Kcp.ikcp_recv(context, ptr, oldBuffer.Length);
-                        if (status < 0)
-                        {
-                            if (status == -3)
-                                continue;
-                            break;
-                        }
-                    }
-                    int available = bufferLength - bytesWritten;
-                    if (status > available)
-                    {
-                        oldBuffer.AsSpan()[..available].CopyTo(buffer[bytesWritten..]);
-                        bytesWritten = bufferLength;
-                        _buffer = oldBuffer;
-                        _bufferStart = available;
-                        _bufferEnd = status;
+                        _buffer = null;
+                        _bufferStart = 0;
+                        _bufferEnd = 0;
+                        ArrayPool<byte>.Shared.Return(localBuffer);
                     }
                     else
                     {
-                        oldBuffer.AsSpan()[..status].CopyTo(buffer[bytesWritten..]);
-                        bytesWritten += status;
-                        ArrayPool<byte>.Shared.Return(oldBuffer);
+                        _bufferStart = bufferStart;
                     }
-                    return true;
+                }
+                if (bytesWritten >= destinationLength)
+                    return result;
+            }
+
+            ArrayPool<byte> pool = ArrayPool<byte>.Shared;
+
+        FetchNewData:
+            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: true);
+            if (localBuffer is null)
+                return null;
+
+            int bytesToCopy = Math.Min(fetchedBytes, destinationLength - bytesWritten);
+            localBuffer.AsSpan(0, bytesToCopy).CopyTo(CreateBytesSpanFromLocalVariable(ref result).Slice(bytesWritten));
+            bytesWritten += bytesToCopy;
+            if (fetchedBytes > bytesToCopy)
+            {
+                _buffer = localBuffer;
+                _bufferStart = bytesToCopy;
+                _bufferEnd = fetchedBytes;
+            }
+            else
+            {
+                pool.Return(localBuffer);
+                if (bytesWritten < destinationLength)
+                    goto FetchNewData;
+            }
+            return result;
+        }
+
+        public async ValueTask<int?> ReceiveAsync(Memory<byte> buffer, bool fillAll)
+        {
+            byte[]? localBuffer = _buffer;
+            int destinationLength = buffer.Length, bufferStart = _bufferStart, bufferEnd = _bufferEnd;
+
+            if (ConsumeBuffer(localBuffer, ref bufferStart, bufferEnd, buffer.Span, out bool outOfBuffer, out int bytesWritten))
+            {
+                if (outOfBuffer)
+                {
+                    _buffer = null;
+                    _bufferStart = 0;
+                    _bufferEnd = 0;
+                    ArrayPool<byte>.Shared.Return(localBuffer);
+                }
+                else
+                {
+                    _bufferStart = bufferStart;
                 }
             }
-            return bytesWritten > 0;
+            if (bytesWritten >= destinationLength)
+                return destinationLength;
+
+            ArrayPool<byte> pool = ArrayPool<byte>.Shared;
+
+        FetchNewData:
+            (localBuffer, int fetchedBytes) = await FetchDataIntoNewBufferAsync(pool, blocked: fillAll || bytesWritten == 0);
+            if (localBuffer is null)
+                return bytesWritten;
+
+            int bytesToCopy = Math.Min(fetchedBytes, destinationLength - bytesWritten);
+            localBuffer.AsSpan(0, bytesToCopy).CopyTo(buffer.Span.Slice(bytesWritten));
+            bytesWritten += bytesToCopy;
+            if (fetchedBytes > bytesToCopy)
+            {
+                _buffer = localBuffer;
+                _bufferStart = bytesToCopy;
+                _bufferEnd = fetchedBytes;
+            }
+            else
+            {
+                pool.Return(localBuffer);
+                if (fillAll && bytesWritten < destinationLength)
+                    goto FetchNewData;
+            }
+            return bytesWritten;
         }
 
         public unsafe void Flush()
@@ -229,6 +231,81 @@ namespace KcpSharpN
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static uint GetTimestampAsUInt32()
             => (uint)(ulong)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static Span<byte> CreateBytesSpanFromLocalVariable<T>(scoped ref T reference) where T : unmanaged
+            => MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(ref reference, 1));
+
+        private static bool ConsumeBuffer([NotNullWhen(true)] byte[]? buffer, ref int start, int end, Span<byte> destination, out bool outOfBuffer, out int bytesWritten)
+        {
+            if (buffer is null)
+                goto Failed;
+            int length = end - start;
+            if (length <= 0)
+                goto Failed;
+
+            length = Math.Min(length, destination.Length);
+            buffer.AsSpan(start, length).CopyTo(destination);
+            start += length;
+
+            outOfBuffer = start >= end;
+            bytesWritten = length;
+            return true;
+
+        Failed:
+            outOfBuffer = false;
+            bytesWritten = 0;
+            return false;
+        }
+
+        private async ValueTask<(byte[]? buffer, int bytesWritten)> FetchDataIntoNewBufferAsync(ArrayPool<byte> pool, bool blocked)
+        {
+        Head:
+            unsafe
+            {
+                KcpContext* context = _context;
+                int bytesWritten = Kcp.ikcp_peeksize(context);
+                if (bytesWritten < 0)
+                    goto TryWait;
+                byte[]? buffer = pool.Rent(bytesWritten);
+                try
+                {
+                    fixed (byte* ptr = buffer)
+                        bytesWritten = Kcp.ikcp_recv(context, ptr, buffer.Length);
+                    if (bytesWritten >= 0)
+                    {
+                        byte[]? result = buffer;
+                        buffer = null;
+                        return (result, bytesWritten);
+                    }
+                    switch (bytesWritten)
+                    {
+                        case -1:
+                        case -2:
+                            goto TryWait;
+                        case -3:
+                            goto Head;
+                    }
+                    goto Failed;
+                }
+                finally
+                {
+                    if (buffer is not null)
+                        pool.Return(buffer);
+                }
+            }
+
+        TryWait:
+            if (blocked)
+            {
+                await WaitForDataReceived();
+                goto Head;
+            }
+            goto Failed;
+
+        Failed:
+            return (null, 0);
+        }
 
         ~KcpPipe() => Dispose(disposing: false);
 
