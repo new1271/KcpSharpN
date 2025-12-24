@@ -16,10 +16,11 @@ namespace KcpSharpN
         {
             private static ulong _idCounter = 0;
 
-            private readonly ArrayPool<byte> _pool = ArrayPool<byte>.Shared;
-            private readonly ConcurrentQueue<ArraySegment<byte>> _inputQueue, _sendQueue, _receiveQueue;
+            private readonly ArrayPool<byte> _pool;
+            private readonly ConcurrentQueue<ArraySegment<byte>> _inputQueue;
+            private readonly ConcurrentQueue<ArraySegment<byte>> _sendQueue, _receiveQueue;
             private readonly ConcurrentQueue<TaskCompletionSource<bool>> _receiveAwaiterQueue;
-            private readonly SemaphoreSlim _receiveBarrier = new SemaphoreSlim(1, 1);
+            private readonly SemaphoreSlim _receiveBarrier;
             private readonly Thread _thread;
             private readonly unsafe KcpContext* _context;
 
@@ -34,12 +35,14 @@ namespace KcpSharpN
                 _sendQueue = new ConcurrentQueue<ArraySegment<byte>>();
                 _receiveQueue = new ConcurrentQueue<ArraySegment<byte>>();
                 _receiveAwaiterQueue = new ConcurrentQueue<TaskCompletionSource<bool>>();
+                _receiveBarrier = new SemaphoreSlim(1, 1);
                 _thread = new Thread(DoThreadLoop)
                 {
                     IsBackground = true,
                     Priority = ThreadPriority.AboveNormal,
                     Name = $"KCP Protocol Thread Loop #{Interlocked.Increment(ref _idCounter):D}"
                 };
+                _thread.Start();
             }
 
             public void Input(ReadOnlySpan<byte> data)
@@ -271,28 +274,7 @@ namespace KcpSharpN
                     }
                     Kcp.ikcp_update(context, timestamp);
 
-                    if (inputQueue.TryDequeue(out ArraySegment<byte> segment))
-                    {
-                        Thread.MemoryBarrier();
-                        do
-                        {
-                            byte[]? buffer = segment.Array;
-                            if (buffer is null)
-                                continue;
-                            try
-                            {
-                                Span<byte> span = segment.AsSpan();
-                                fixed (byte* ptr = span)
-                                    Kcp.ikcp_input(context, ptr, span.Length);
-                            }
-                            finally
-                            {
-                                pool.Return(buffer);
-                            }
-                        } while (inputQueue.TryDequeue(out segment));
-                    }
-
-                    if (sendQueue.TryDequeue(out segment))
+                    if (sendQueue.TryDequeue(out ArraySegment<byte> segment))
                     {
                         Thread.MemoryBarrier();
                         do
@@ -305,6 +287,27 @@ namespace KcpSharpN
                                 Span<byte> span = segment.AsSpan();
                                 fixed (byte* ptr = span)
                                     Kcp.ikcp_send(context, ptr, span.Length);
+                            }
+                            finally
+                            {
+                                pool.Return(buffer);
+                            }
+                        } while (sendQueue.TryDequeue(out segment));
+                    }
+
+                    if (inputQueue.TryDequeue(out segment))
+                    {
+                        Thread.MemoryBarrier();
+                        do
+                        {
+                            byte[]? buffer = segment.Array;
+                            if (buffer is null)
+                                continue;
+                            try
+                            {
+                                Span<byte> span = segment.AsSpan();
+                                fixed (byte* ptr = span)
+                                    Kcp.ikcp_input(context, ptr, span.Length);
                             }
                             finally
                             {
@@ -368,6 +371,24 @@ namespace KcpSharpN
                 {
                     barrier.Release();
                     barrier.Dispose();
+                }
+                while (_inputQueue.TryDequeue(out ArraySegment<byte> segment))
+                {
+                    byte[]? array = segment.Array;
+                    if (array is not null)
+                        _pool.Return(array);
+                }
+                while (_sendQueue.TryDequeue(out ArraySegment<byte> segment))
+                {
+                    byte[]? array = segment.Array;
+                    if (array is not null)
+                        _pool.Return(array);
+                }
+                while (_receiveQueue.TryDequeue(out ArraySegment<byte> segment))
+                {
+                    byte[]? array = segment.Array;
+                    if (array is not null)
+                        _pool.Return(array);
                 }
             }
 

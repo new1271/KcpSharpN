@@ -53,6 +53,9 @@ namespace KcpSharpN
         public void Input(ReadOnlySpan<byte> data)
             => _threadLoopLazy.Value.Input(data);
 
+        public void Send<T>(T value) where T : unmanaged
+            => Send(CreateBytesSpanFromLocalVariable(ref value));
+
         public void Send(ReadOnlySpan<byte> data)
             => _threadLoopLazy.Value.Send(data);
 
