@@ -59,6 +59,15 @@ namespace KcpSharpN
         public void Send(ReadOnlySpan<byte> data)
             => _threadLoopLazy.Value.Send(data);
 
+        public void Flush(bool blocking)
+            => _threadLoopLazy.Value.Flush(blocking);
+
+        public Task FlushAsync(bool blocking)
+            => _threadLoopLazy.Value.FlushAsync(blocking);
+
+        public ValueTask FlushAsync(bool blocking, CancellationToken cancellationToken)
+            => _threadLoopLazy.Value.FlushAsync(blocking, cancellationToken);
+
         public unsafe bool Receive<T>(out T value) where T : unmanaged
         {
             Unsafe.SkipInit(out value);

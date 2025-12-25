@@ -19,13 +19,13 @@ namespace KcpSharpN
             private readonly ArrayPool<byte> _pool;
             private readonly ConcurrentQueue<ArraySegment<byte>> _inputQueue;
             private readonly ConcurrentQueue<ArraySegment<byte>> _sendQueue, _receiveQueue;
-            private readonly ConcurrentQueue<TaskCompletionSource<bool>> _receiveAwaiterQueue;
+            private readonly ConcurrentQueue<TaskCompletionSource<bool>> _receiveAwaiterQueue, _flushAwaiterQueue;
             private readonly SemaphoreSlim _receiveBarrier;
             private readonly Thread _thread;
             private readonly unsafe KcpContext* _context;
 
             private ArraySegment<byte> _currentSegment;
-            private ulong _disposed = 0UL;
+            private ulong _disposed = 0UL, _needManuallyFlushing = 0UL;
 
             public unsafe InternalThreadLoop(KcpContext* context)
             {
@@ -35,6 +35,7 @@ namespace KcpSharpN
                 _sendQueue = new ConcurrentQueue<ArraySegment<byte>>();
                 _receiveQueue = new ConcurrentQueue<ArraySegment<byte>>();
                 _receiveAwaiterQueue = new ConcurrentQueue<TaskCompletionSource<bool>>();
+                _flushAwaiterQueue = new ConcurrentQueue<TaskCompletionSource<bool>>();
                 _receiveBarrier = new SemaphoreSlim(1, 1);
                 _thread = new Thread(DoThreadLoop)
                 {
@@ -59,6 +60,60 @@ namespace KcpSharpN
                 byte[] buffer = _pool.Rent(length);
                 data.CopyTo(buffer.AsSpan());
                 _sendQueue.Enqueue(new ArraySegment<byte>(buffer, 0, length));
+            }
+
+            public void Flush(bool blocking)
+            {
+                if (blocking)
+                {
+                    TaskCompletionSource<bool> awaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _flushAwaiterQueue.Enqueue(awaiter);
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                    awaiter.Task.Wait();
+                }
+                else
+                {
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                }
+            }
+
+            public Task FlushAsync(bool blocking)
+            {
+                if (blocking)
+                {
+                    TaskCompletionSource<bool> awaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _receiveAwaiterQueue.Enqueue(awaiter);
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                    return awaiter.Task;
+                }
+                else
+                {
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                    return Task.CompletedTask;
+                }
+            }
+
+            public async ValueTask FlushAsync(bool blocking, CancellationToken cancellationToken)
+            {
+                if (blocking)
+                {
+                    TaskCompletionSource<bool> awaiter = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _receiveAwaiterQueue.Enqueue(awaiter);
+                    CancellationTokenRegistration registration = cancellationToken.Register(() => awaiter.TrySetCanceled(cancellationToken), useSynchronizationContext: false);
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                    try
+                    {
+                        await awaiter.Task;
+                    }
+                    finally
+                    {
+                        registration.Dispose();
+                    }
+                }
+                else
+                {
+                    Interlocked.CompareExchange(ref _needManuallyFlushing, 1UL, 0UL);
+                }
             }
 
             public bool TryReceive(Span<byte> destination, out int bytesWritten)
@@ -261,6 +316,7 @@ namespace KcpSharpN
                 ConcurrentQueue<ArraySegment<byte>> sendQueue = _sendQueue;
                 ConcurrentQueue<ArraySegment<byte>> receiveQueue = _receiveQueue;
                 ConcurrentQueue<TaskCompletionSource<bool>> receiveAwaiterQueue = _receiveAwaiterQueue;
+                ConcurrentQueue<TaskCompletionSource<bool>> flushAwaiterQueue = _flushAwaiterQueue;
                 KcpContext* context = _context;
 
                 while (Interlocked.Read(ref _disposed) == 0UL)
@@ -293,6 +349,14 @@ namespace KcpSharpN
                                 pool.Return(buffer);
                             }
                         } while (sendQueue.TryDequeue(out segment));
+                    }
+
+                    if (Interlocked.Exchange(ref _needManuallyFlushing, 0UL) != 0UL)
+                    {
+                        Thread.MemoryBarrier();
+                        Kcp.ikcp_flush(context);
+                        while (flushAwaiterQueue.TryDequeue(out TaskCompletionSource<bool>? awaiter))
+                            awaiter.TrySetResult(true);
                     }
 
                     if (inputQueue.TryDequeue(out segment))
@@ -390,6 +454,10 @@ namespace KcpSharpN
                     if (array is not null)
                         _pool.Return(array);
                 }
+                while (_receiveAwaiterQueue.TryDequeue(out TaskCompletionSource<bool>? awaiter))
+                    awaiter.TrySetResult(false);
+                while (_flushAwaiterQueue.TryDequeue(out TaskCompletionSource<bool>? awaiter))
+                    awaiter.TrySetResult(false);
             }
 
             ~InternalThreadLoop()
