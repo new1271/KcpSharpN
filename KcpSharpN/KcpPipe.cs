@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Net;
-using System.Net.Sockets;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -10,22 +9,23 @@ using KcpSharpN.Native;
 
 namespace KcpSharpN
 {
+    public delegate void OnUnderlyingPacketSendingEventHandler(KcpPipe sender, in ReadOnlySpan<byte> packet);
+
     public sealed partial class KcpPipe : IDisposable
     {
         private unsafe readonly KcpContext* _context;
         private readonly Lazy<InternalThreadLoop> _threadLoopLazy;
-        private readonly Socket _socket;
         private readonly EndPoint _endPoint;
 
         private bool _disposed;
 
+        public event OnUnderlyingPacketSendingEventHandler? OnUnderlyingPacketSending;
         public unsafe KcpContext* Context => _context;
         public unsafe KcpPipeOption Option => _context->ToPipeOption();
         public bool IsDisposed => _disposed;
 
-        public unsafe KcpPipe(Socket socket, EndPoint endPoint, in KcpPipeOption option)
+        public unsafe KcpPipe(EndPoint endPoint, in KcpPipeOption option)
         {
-            _socket = socket;
             _endPoint = endPoint;
             KcpContext* context = Kcp.ikcp_create(option.ConversationId, (void*)GCHandle.ToIntPtr(GCHandle.Alloc(this, GCHandleType.Normal)));
             if (context is null)
@@ -39,11 +39,10 @@ namespace KcpSharpN
             _threadLoopLazy = new Lazy<InternalThreadLoop>(() => new InternalThreadLoop(_context), LazyThreadSafetyMode.ExecutionAndPublication);
         }
 
-        public unsafe KcpPipe(Socket socket, EndPoint endPoint, KcpContext* context)
+        public unsafe KcpPipe(EndPoint endPoint, KcpContext* context)
         {
             if (context is null)
                 throw new ArgumentNullException(nameof(context));
-            _socket = socket;
             _endPoint = endPoint;
             _context = context;
             Kcp.ikcp_setoutput(context, &HandleOutputPacket);
@@ -93,13 +92,11 @@ namespace KcpSharpN
             GCHandle handle = GCHandle.FromIntPtr((nint)user);
             if (handle.Target is not KcpPipe pipe)
                 goto Failed;
-            pipe.HandleOutputPacket(new ReadOnlySpan<byte>(buffer, length));
+            pipe.OnUnderlyingPacketSending?.Invoke(pipe, new ReadOnlySpan<byte>(buffer, length));
             return 0;
         Failed:
             return -1;
         }
-
-        private void HandleOutputPacket(ReadOnlySpan<byte> packet) => _socket.SendTo(packet, _endPoint);
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Span<byte> CreateBytesSpanFromLocalVariable<T>(scoped ref T reference) where T : unmanaged
