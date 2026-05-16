@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -68,11 +68,9 @@ namespace KcpSharpN.Native
         {
             private const string LibraryName = "msvcrt";
 
-            [SuppressGCTransition]
             [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = nameof(malloc))]
             public static extern void* malloc(nuint size);
 
-            [SuppressGCTransition]
             [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = nameof(free))]
             public static extern void free(void* ptr);
         }
@@ -85,11 +83,9 @@ namespace KcpSharpN.Native
         {
             private const string LibraryName = "libc";
 
-            [SuppressGCTransition]
             [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = nameof(malloc))]
             public static extern void* malloc(nuint size);
 
-            [SuppressGCTransition]
             [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = nameof(free))]
             public static extern void free(void* ptr);
         }

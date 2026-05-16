@@ -1,4 +1,7 @@
-﻿using System;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -13,9 +16,13 @@ namespace KcpSharpN
 
     public sealed partial class KcpPipe : IDisposable
     {
+        private static readonly ConcurrentDictionary<nuint, GCHandle> _instanceDict = new();
+        private static long _identifierCounter = 0;
+
         private unsafe readonly KcpContext* _context;
         private readonly Lazy<InternalThreadLoop> _threadLoopLazy;
         private readonly EndPoint _endPoint;
+        private readonly nuint _identifier;
 
         private bool _disposed;
 
@@ -27,10 +34,22 @@ namespace KcpSharpN
         public unsafe KcpPipe(EndPoint endPoint, in KcpPipeOption option)
         {
             _endPoint = endPoint;
-            KcpContext* context = Kcp.ikcp_create(option.ConversationId, (void*)GCHandle.ToIntPtr(GCHandle.Alloc(this, GCHandleType.Normal)));
+            nuint identifier;
+            while (true)
+            {
+                identifier = (nuint)Interlocked.Increment(ref _identifierCounter);
+                if (_instanceDict.TryAdd(identifier, GCHandle.Alloc(this, GCHandleType.Weak)))
+                    break;
+            }
+            KcpContext* context = Kcp.ikcp_create(option.ConversationId, (void*)identifier);
             if (context is null)
+            {
+                _instanceDict.TryRemove(identifier, out GCHandle handle);
+                handle.Free();
                 throw new InvalidOperationException("Failed to create KCP context.");
+            }
             _context = context;
+            _identifier = identifier;
             Kcp.ikcp_setmtu(context, (int)option.Mtu);
             Kcp.ikcp_interval(context, (int)option.Interval);
             Kcp.ikcp_wndsize(context, (int)option.SendWindow, (int)option.ReceiveWindow);
@@ -87,11 +106,13 @@ namespace KcpSharpN
         [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
         private static unsafe int HandleOutputPacket(byte* buffer, int length, KcpContext* context, void* user)
         {
-            if (user == null)
+            if (user == null || !_instanceDict.TryGetValue((nuint)user, out GCHandle handle))
                 goto Failed;
-            GCHandle handle = GCHandle.FromIntPtr((nint)user);
             if (handle.Target is not KcpPipe pipe)
+            {
+                _instanceDict.TryRemove(KeyValuePair.Create((nuint)user, handle));
                 goto Failed;
+            }
             pipe.OnUnderlyingPacketSending?.Invoke(pipe, new ReadOnlySpan<byte>(buffer, length));
             return 0;
         Failed:
@@ -124,6 +145,8 @@ namespace KcpSharpN
             if (!_threadLoopLazy.IsValueCreated)
                 return;
             _threadLoopLazy.Value.Dispose();
+            if (_instanceDict.TryRemove(_identifier, out GCHandle handle))
+                handle.Free();
         }
     }
 }
