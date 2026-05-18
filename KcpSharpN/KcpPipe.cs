@@ -53,7 +53,7 @@ namespace KcpSharpN
             Kcp.ikcp_setmtu(context, (int)option.Mtu);
             Kcp.ikcp_interval(context, (int)option.Interval);
             Kcp.ikcp_wndsize(context, (int)option.SendWindow, (int)option.ReceiveWindow);
-            Kcp.ikcp_nodelay(context, (int)option.NoDelay, (int)option.Interval, option.FastResend, option.CongestionControl);
+            Kcp.ikcp_nodelay(context, (int)option.NoDelay, (int)option.Interval, option.FastResend, option.NoCongestionControl ? 1 : 0);
             Kcp.ikcp_setoutput(context, &HandleOutputPacket);
             _threadLoopLazy = new Lazy<InternalThreadLoop>(() => new InternalThreadLoop(_context), LazyThreadSafetyMode.ExecutionAndPublication);
         }

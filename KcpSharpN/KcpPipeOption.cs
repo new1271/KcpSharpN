@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 using KcpSharpN.Native;
 
@@ -11,7 +11,8 @@ namespace KcpSharpN
         public uint ConversationId, Mtu,
             SendWindow, ReceiveWindow,
             NoDelay, Interval;
-        public int FastResend, CongestionControl;
+        public int FastResend;
+        public bool NoCongestionControl;
 
         public static unsafe KcpPipeOption GetDefaultPipeOption(uint conversationId)
         {

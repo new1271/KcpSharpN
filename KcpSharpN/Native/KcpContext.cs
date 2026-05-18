@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 
 namespace KcpSharpN.Native
 {
@@ -46,7 +46,7 @@ namespace KcpSharpN.Native
                 NoDelay = nodelay,
                 Interval = interval,
                 FastResend = fastresend,
-                CongestionControl = nocwnd
+                NoCongestionControl = nocwnd != 0
             };
     }
 }
