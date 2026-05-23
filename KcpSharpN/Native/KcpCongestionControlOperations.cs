@@ -16,7 +16,7 @@ public unsafe struct KcpCongestionControlOperations
     /// <summary>
     /// const char* name;
     /// </summary>
-    public char* name;
+    public byte* name;
     /// <summary>
     /// int (* init) (ikcpcb* kcp);
     /// </summary>
