@@ -4,11 +4,17 @@ using InlineMethod;
 
 namespace KcpSharpN.Native;
 
-internal unsafe static class KcpQueue
+/// <summary>
+/// Provides the operations for <see cref="KcpQueueHead"/>.
+/// </summary>
+public unsafe static class KcpQueue
 {
     //---------------------------------------------------------------------
     // queue init                                                         
     //---------------------------------------------------------------------
+    /// <summary>
+    /// Initialize the queue.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Initialize(KcpQueueHead* ptr)
     {
@@ -16,10 +22,16 @@ internal unsafe static class KcpQueue
         ptr->prev = ptr;
     }
 
+    /// <summary>
+    /// Get the entry of the queue.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T* GetEntry<T>(KcpQueueHead* ptr, nuint offset) where T : unmanaged
         => KcpQueueHead.ContainerOf<T>(ptr, offset);
 
+    /// <summary>
+    /// Get the entry of the queue.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static T* GetEntry<T>(KcpQueueHead* ptr, OffsetCalculateFunc<T> offsetFunc) where T : unmanaged
         => KcpQueueHead.ContainerOf(ptr, offsetFunc);
@@ -27,18 +39,12 @@ internal unsafe static class KcpQueue
     //---------------------------------------------------------------------
     // queue operation                     
     //---------------------------------------------------------------------
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Add(KcpQueueHead* node, KcpQueueHead* head)
-    {
-        KcpQueueHead* headNext = head->next;
-        node->prev = head;
-        node->next = headNext;
-        head->next = node;
-        headNext->prev = node;
-    }
 
+    /// <summary>
+    /// Appends the <paramref name="node"/> before the <paramref name="head"/>.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void AddTail(KcpQueueHead* node, KcpQueueHead* head)
+    public static void AppendBefore(KcpQueueHead* node, KcpQueueHead* head)
     {
         KcpQueueHead* headPrev = head->prev;
         node->prev = headPrev;
@@ -47,6 +53,24 @@ internal unsafe static class KcpQueue
         headPrev->next = node;
     }
 
+    /// <summary>
+    /// Appends the <paramref name="node"/> after the <paramref name="head"/>.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void ApeendAfter(KcpQueueHead* node, KcpQueueHead* head)
+    {
+        KcpQueueHead* headNext = head->next;
+        node->prev = head;
+        node->next = headNext;
+        head->next = node;
+        headNext->prev = node;
+    }
+
+    /// <summary>
+    /// Deletes the nodes betweens <paramref name="p"/> and <paramref name="n"/>.
+    /// </summary>
+    /// <param name="p"></param>
+    /// <param name="n"></param>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void DeleteBetween(KcpQueueHead* p, KcpQueueHead* n)
     {
@@ -54,6 +78,9 @@ internal unsafe static class KcpQueue
         p->next = n;
     }
 
+    /// <summary>
+    /// Deletes the <paramref name="entry"/>.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Delete(KcpQueueHead* entry)
     {
@@ -63,6 +90,9 @@ internal unsafe static class KcpQueue
         entry->prev = null;
     }
 
+    /// <summary>
+    /// Do <see cref="Delete(KcpQueueHead*)"/> and <see cref="Initialize(KcpQueueHead*)"/>
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void DeleteAndInitialize(KcpQueueHead* entry)
     {
@@ -70,9 +100,15 @@ internal unsafe static class KcpQueue
         Initialize(entry);
     }
 
+    /// <summary>
+    /// Checks the node is empty.
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool IsEmpty(KcpQueueHead* entry) => entry == entry->next;
 
+    /// <summary>
+    /// Splice the <paramref name="list"/> into the <paramref name="head"/>
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void Splice(KcpQueueHead* list, KcpQueueHead* head)
     {
@@ -81,6 +117,9 @@ internal unsafe static class KcpQueue
         SpliceCore(list, head);
     }
 
+    /// <summary>
+    /// Do <see cref="Splice(KcpQueueHead*, KcpQueueHead*)"/> and <see cref="Initialize(KcpQueueHead*)"/>
+    /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void SpliceAndInitialize(KcpQueueHead* list, KcpQueueHead* head)
     {

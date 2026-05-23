@@ -32,11 +32,14 @@ public unsafe struct KcpContext
     public uint* acklist;
     public uint ackcount;
     public uint ackblock;
+    public uint ackedlen;
     public void* user;
     public byte* buffer;
     public int fastresend;
     public int fastlimit;
     public int nocwnd, stream;
+    public KcpCongestionControlOperations* ccops;
+    public void* congest;
     public KcpLogFlags logmask;
     public delegate* unmanaged[Cdecl]<byte*, int, KcpContext*, void*, int> output;
     public delegate* unmanaged[Cdecl]<byte*, KcpContext*, void*, void> writelog;
