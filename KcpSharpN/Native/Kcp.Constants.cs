@@ -26,7 +26,7 @@ partial class Kcp
     public const int IKCP_DEADLINK = 20;
     public const int IKCP_THRESH_INIT = 2;
     public const int IKCP_THRESH_MIN = 2;
-    public const int IKCP_PROBE_INIT = 7000;       // 7 secs to probe window size
+    public const int IKCP_PROBE_INIT = 5000;       // 5 secs to probe window size
     public const int IKCP_PROBE_LIMIT = 120000;    // up to 120 secs to probe window
     public const int IKCP_FASTACK_LIMIT = 5;       // max times to trigger fastack
 }

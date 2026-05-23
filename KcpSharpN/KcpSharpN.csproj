@@ -7,7 +7,7 @@
 		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 		<Platforms>AnyCPU;x64</Platforms>
 		<LangVersion>13.0</LangVersion>
-		<AssemblyVersion>1.7.0</AssemblyVersion>
+		<AssemblyVersion>2.1.1</AssemblyVersion>
 		<Authors>RiceTea (new1271)</Authors>
 		<Copyright>Copyright © RiceTea (new1271) 2026</Copyright>
 		<Description>A tiny C# implementation for KCP protocol</Description>
@@ -16,7 +16,7 @@
 		<PackageLicenseFile>LICENSE</PackageLicenseFile>
 		<PackageRequireLicenseAcceptance>False</PackageRequireLicenseAcceptance>
 		<PackageReadmeFile>package_README.md</PackageReadmeFile>
-		<PackageVersion>1.7.0</PackageVersion>
+		<PackageVersion>2.1.1</PackageVersion>
 		<SignAssembly>True</SignAssembly>
 		<AssemblyOriginatorKeyFile>keypair.snk</AssemblyOriginatorKeyFile>
 		<GenerateDocumentationFile>True</GenerateDocumentationFile>

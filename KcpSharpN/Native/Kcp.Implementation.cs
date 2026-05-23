@@ -202,6 +202,7 @@ unsafe partial class Kcp
         kcp->acklist = null;
         kcp->ackblock = 0;
         kcp->ackcount = 0;
+        kcp->ackedlen = 0;
         kcp->rx_srtt = 0;
         kcp->rx_rttval = 0;
         kcp->rx_rto = IKCP_RTO_DEF;
@@ -219,18 +220,24 @@ unsafe partial class Kcp
         kcp->xmit = 0;
         kcp->dead_link = IKCP_DEADLINK;
         kcp->output = null;
+        kcp->ccops = null;
+        kcp->congest = null;
         kcp->writelog = null;
 
         return kcp;
     }
 
     //---------------------------------------------------------------------
-    // release a new kcpcb
+    // release a kcpcb
     //---------------------------------------------------------------------
     public static partial void ikcp_release(KcpContext* kcp)
     {
         if (kcp == null)
             throw new ArgumentNullException(nameof(kcp));
+        KcpCongestionControlOperations* ccops = kcp->ccops;
+        delegate* unmanaged[Cdecl]<KcpContext*, void> release;
+        if (ccops is not null && (release = ccops->release) is not null)
+            release(kcp);
         kcp_release_queue(kcp, &kcp->snd_buf);
         kcp_release_queue(kcp, &kcp->rcv_buf);
         kcp_release_queue(kcp, &kcp->snd_queue);
@@ -267,7 +274,7 @@ unsafe partial class Kcp
     }
 
     //---------------------------------------------------------------------
-    // user/upper level recv: returns size, returns below zero for EAGAIN
+    // upper-level recv: returns size, or a negative value for EAGAIN
     //---------------------------------------------------------------------
     public static partial int ikcp_recv(KcpContext* kcp, byte* buffer, int len)
     {
@@ -338,7 +345,7 @@ unsafe partial class Kcp
             {
                 KcpQueue.Delete(&seg->node);
                 kcp->nrcv_buf--;
-                KcpQueue.AddTail(&seg->node, &kcp->rcv_queue);
+                KcpQueue.AppendBefore(&seg->node, &kcp->rcv_queue);
                 kcp->nrcv_que++;
                 kcp->rcv_nxt++;
             }
@@ -391,7 +398,7 @@ unsafe partial class Kcp
 
 
     //---------------------------------------------------------------------
-    // user/upper level send, returns below zero for error
+    // upper-level send: returns size, or a negative value on error
     //---------------------------------------------------------------------
     public static partial int ikcp_send(KcpContext* kcp, byte* buffer, int len)
     {
@@ -417,7 +424,7 @@ unsafe partial class Kcp
                     seg = ikcp_segment_new(kcp, old->len + (uint)extend);
                     if (seg == null)
                         return -2;
-                    KcpQueue.AddTail(&seg->node, &kcp->snd_queue);
+                    KcpQueue.AppendBefore(&seg->node, &kcp->snd_queue);
                     memcpy(seg->data, old->data, old->len);
                     if (buffer != null)
                     {
@@ -466,7 +473,7 @@ unsafe partial class Kcp
             seg->len = (uint)size;
             seg->frg = (kcp->stream == 0) ? (uint)(count - i - 1) : 0;
             KcpQueue.Initialize(&seg->node);
-            KcpQueue.AddTail(&seg->node, &kcp->snd_queue);
+            KcpQueue.AppendBefore(&seg->node, &kcp->snd_queue);
             kcp->nsnd_que++;
             if (buffer != null)
             {
@@ -502,6 +509,13 @@ unsafe partial class Kcp
         }
         rto = unchecked((int)(kcp->rx_srtt + _imax_(kcp->interval, unchecked((uint)(4 * kcp->rx_rttval)))));
         kcp->rx_rto = unchecked((int)_ibound_(unchecked((uint)kcp->rx_minrto), unchecked((uint)rto), IKCP_RTO_MAX));
+        KcpCongestionControlOperations* ccops = kcp->ccops;
+        if (ccops is not null)
+        {
+            delegate* unmanaged[Cdecl]<KcpContext*, int, void> on_rtt = ccops->on_rtt;
+            if (on_rtt is not null)
+                on_rtt(kcp, rtt);
+        }
     }
 
     private static void ikcp_shrink_buf(KcpContext* kcp)
@@ -521,6 +535,7 @@ unsafe partial class Kcp
     private static void ikcp_parse_ack(KcpContext* kcp, uint sn)
     {
         KcpQueueHead* p, next;
+        int pkt_rtt;
 
         if (_itimediff(sn, kcp->snd_una) < 0 || _itimediff(sn, kcp->snd_nxt) >= 0)
             return;
@@ -531,6 +546,19 @@ unsafe partial class Kcp
             next = p->next;
             if (sn == seg->sn)
             {
+                kcp->ackedlen += seg->len;
+                KcpCongestionControlOperations* ccops = kcp->ccops;
+                delegate* unmanaged[Cdecl]<KcpContext*, uint, uint, uint, int, uint, void> on_pkt_acked;
+                if (ccops is not null && (on_pkt_acked = ccops->on_pkt_acked) is not null)
+                {
+                    pkt_rtt = -1;
+                    if (_itimediff(kcp->current, seg->ts) >= 0)
+                    {
+                        pkt_rtt = _itimediff(kcp->current, seg->ts);
+                    }
+                    on_pkt_acked(kcp, seg->sn, seg->ts,
+                            seg->len, pkt_rtt, seg->xmit);
+                }
                 KcpQueue.Delete(p);
                 ikcp_segment_delete(kcp, seg);
                 kcp->nsnd_buf--;
@@ -552,6 +580,14 @@ unsafe partial class Kcp
             next = p->next;
             if (_itimediff(una, seg->sn) > 0)
             {
+                kcp->ackedlen += seg->len;
+                KcpCongestionControlOperations* ccops = kcp->ccops;
+                delegate* unmanaged[Cdecl]<KcpContext*, uint, uint, uint, int, uint, void> on_pkt_acked;
+                if (ccops is not null && (on_pkt_acked = ccops->on_pkt_acked) is not null)
+                {
+                    on_pkt_acked(kcp, seg->sn, seg->ts,
+                            seg->len, -1, seg->xmit);
+                }
                 KcpQueue.Delete(p);
                 ikcp_segment_delete(kcp, seg);
                 kcp->nsnd_buf--;
@@ -675,7 +711,7 @@ unsafe partial class Kcp
         if (repeat == 0)
         {
             KcpQueue.Initialize(&newseg->node);
-            KcpQueue.Add(&newseg->node, p);
+            KcpQueue.ApeendAfter(&newseg->node, p);
             kcp->nrcv_buf++;
         }
         else
@@ -696,7 +732,7 @@ unsafe partial class Kcp
             {
                 KcpQueue.Delete(&seg->node);
                 kcp->nrcv_buf--;
-                KcpQueue.AddTail(&seg->node, &kcp->rcv_queue);
+                KcpQueue.AppendBefore(&seg->node, &kcp->rcv_queue);
                 kcp->nrcv_que++;
                 kcp->rcv_nxt++;
             }
@@ -724,8 +760,12 @@ unsafe partial class Kcp
     public static partial int ikcp_input(KcpContext* kcp, byte* data, nint size)
     {
         uint prev_una = kcp->snd_una;
+        uint prev_nsnd_buf = kcp->nsnd_buf;
+        uint acked_segs, prior_in_flight;
         uint maxack = 0, latest_ts = 0;
         int flag = 0;
+
+        kcp->ackedlen = 0;
 
         if (ikcp_canlog(kcp, KcpLogFlags.Input, out delegate* unmanaged[Cdecl]<byte*, KcpContext*, void*, void> loggerFunc))
             ikcp_log_internal(kcp, loggerFunc, $"[RI] {size:D} bytes");
@@ -869,31 +909,43 @@ unsafe partial class Kcp
 
         if (_itimediff(kcp->snd_una, prev_una) > 0)
         {
-            if (kcp->cwnd < kcp->rmt_wnd)
+            acked_segs = kcp->snd_una - prev_una;
+            prior_in_flight = prev_nsnd_buf;
+            KcpCongestionControlOperations* ccops = kcp->ccops;
+            delegate* unmanaged[Cdecl]<KcpContext*, uint, uint, uint, void> on_ack;
+            if (ccops is not null && (on_ack = ccops->on_ack) is not null)
             {
-                uint mss = kcp->mss;
-                if (kcp->cwnd < kcp->ssthresh)
+                on_ack(kcp, acked_segs, kcp->ackedlen,
+                        prior_in_flight);
+            }
+            else
+            {
+                if (kcp->cwnd < kcp->rmt_wnd)
                 {
-                    kcp->cwnd++;
-                    kcp->incr += mss;
-                }
-                else
-                {
-                    if (kcp->incr < mss) kcp->incr = mss;
-                    kcp->incr += (mss * mss) / kcp->incr + (mss / 16);
-                    if ((kcp->cwnd + 1) * mss <= kcp->incr)
+                    uint mss = kcp->mss;
+                    if (kcp->cwnd < kcp->ssthresh)
                     {
-#if true
-                        kcp->cwnd = (kcp->incr + mss - 1) / ((mss > 0) ? mss : 1);
-#else
                         kcp->cwnd++;
-#endif
+                        kcp->incr += mss;
                     }
-                }
-                if (kcp->cwnd > kcp->rmt_wnd)
-                {
-                    kcp->cwnd = kcp->rmt_wnd;
-                    kcp->incr = kcp->rmt_wnd * mss;
+                    else
+                    {
+                        if (kcp->incr < mss) kcp->incr = mss;
+                        kcp->incr += (mss * mss) / kcp->incr + (mss / 16);
+                        if ((kcp->cwnd + 1) * mss <= kcp->incr)
+                        {
+#if true
+                            kcp->cwnd = (kcp->incr + mss - 1) / ((mss > 0) ? mss : 1);
+#else
+                            kcp->cwnd++;
+#endif
+                        }
+                    }
+                    if (kcp->cwnd > kcp->rmt_wnd)
+                    {
+                        kcp->cwnd = kcp->rmt_wnd;
+                        kcp->incr = kcp->rmt_wnd * mss;
+                    }
                 }
             }
         }
@@ -939,14 +991,36 @@ unsafe partial class Kcp
         int count, size, i;
         uint resent, cwnd;
         uint rtomin;
+        uint prior_cwnd;
+        uint eff_cwnd, cur_inflight;
+        int pacing_budget = -1;
 
         KcpQueueHead* p;
         int change = 0;
         bool lost = false;
         KcpSegment seg;
 
-        // 'ikcp_update' haven't been called. 
+        // 'ikcp_update' hasn't been called yet.
         if (kcp->updated == 0) return;
+
+        KcpCongestionControlOperations* ccops = kcp->ccops;
+        delegate* unmanaged[Cdecl]<KcpContext*, void> on_tick;
+        delegate* unmanaged[Cdecl]<KcpContext*, uint> pacing_rate;
+
+        if (ccops is not null)
+        {
+            if ((on_tick = ccops->on_tick) is not null)
+            {
+                on_tick(kcp);
+            }
+
+            if ((pacing_rate = ccops->pacing_rate) is not null)
+            {
+                pacing_budget = (int)kcp->ccops->pacing_rate(kcp);
+            }
+        }
+
+        prior_cwnd = kcp->cwnd;
 
         seg.conv = kcp->conv;
         seg.cmd = IKCP_CMD_ACK;
@@ -1032,7 +1106,7 @@ unsafe partial class Kcp
 
         // calculate window size
         cwnd = _imin_(kcp->snd_wnd, kcp->rmt_wnd);
-        if (kcp->nocwnd == 0) 
+        if (ccops is not null || kcp->nocwnd == 0)
             cwnd = _imin_(kcp->cwnd, cwnd);
 
         // move data from snd_queue to snd_buf
@@ -1044,7 +1118,7 @@ unsafe partial class Kcp
             newseg = KcpQueue.GetEntry<KcpSegment>(kcp->snd_queue.next, SegmentNodeOffset);
 
             KcpQueue.Delete(&newseg->node);
-            KcpQueue.AddTail(&newseg->node, &kcp->snd_buf);
+            KcpQueue.AppendBefore(&newseg->node, &kcp->snd_buf);
             kcp->nsnd_que--;
             kcp->nsnd_buf++;
 
@@ -1058,6 +1132,22 @@ unsafe partial class Kcp
             newseg->rto = unchecked((uint)kcp->rx_rto);
             newseg->fastack = 0;
             newseg->xmit = 0;
+        }
+
+        // check on_app_limited
+        delegate* unmanaged[Cdecl]<KcpContext*, uint, void> on_app_limited;
+        if (ccops is not null && (on_app_limited = ccops->on_app_limited) is not null)
+        {
+            if (KcpQueue.IsEmpty(&kcp->snd_queue))
+            {
+                eff_cwnd = _imin_(kcp->snd_wnd, kcp->rmt_wnd);
+                eff_cwnd = _imin_(kcp->cwnd, eff_cwnd);
+                cur_inflight = kcp->nsnd_buf;
+                if (cur_inflight < eff_cwnd)
+                {
+                    on_app_limited(kcp, cur_inflight);
+                }
+            }
         }
 
         // calculate resent
@@ -1114,6 +1204,18 @@ unsafe partial class Kcp
                 segment->wnd = seg.wnd;
                 segment->una = kcp->rcv_nxt;
 
+                if (pacing_budget >= 0 && pacing_budget < (int)segment->len)
+                {
+                    break;
+                }
+
+                delegate* unmanaged[Cdecl]<KcpContext*, uint, uint, uint, uint, uint, void> on_pkt_sent;
+                if (ccops is not null && (on_pkt_sent = ccops->on_pkt_sent) is not null)
+                {
+                    on_pkt_sent(kcp, segment->sn, current,
+                            segment->len, kcp->nsnd_buf, segment->xmit);
+                }
+
                 size = (int)(ptr - buffer);
                 need = (int)(IKCP_OVERHEAD + segment->len);
 
@@ -1131,6 +1233,11 @@ unsafe partial class Kcp
                     ptr += segment->len;
                 }
 
+                if (pacing_budget >= 0)
+                {
+                    pacing_budget -= (int)segment->len;
+                }
+
                 if (segment->xmit >= kcp->dead_link)
                 {
                     kcp->state = uint.MaxValue;
@@ -1138,7 +1245,7 @@ unsafe partial class Kcp
             }
         }
 
-        // flash remain segments
+        // flash remaining segments
         size = (int)(ptr - buffer);
         if (size > 0)
         {
@@ -1148,12 +1255,21 @@ unsafe partial class Kcp
         // update ssthresh
         if (change != 0)
         {
-            uint inflight = kcp->snd_nxt - kcp->snd_una;
-            kcp->ssthresh = inflight / 2;
-            if (kcp->ssthresh < IKCP_THRESH_MIN)
-                kcp->ssthresh = IKCP_THRESH_MIN;
-            kcp->cwnd = kcp->ssthresh + resent;
-            kcp->incr = kcp->cwnd * kcp->mss;
+            delegate* unmanaged[Cdecl]<KcpContext*, uint, uint, uint, void> on_fast_retransmit;
+            if (ccops is not null && (on_fast_retransmit = ccops->on_fast_retransmit) is not null)
+            {
+                on_fast_retransmit(kcp, (uint)change,
+                        kcp->nsnd_buf, prior_cwnd);
+            }
+            else
+            {
+                uint inflight = kcp->snd_nxt - kcp->snd_una;
+                kcp->ssthresh = inflight / 2;
+                if (kcp->ssthresh < IKCP_THRESH_MIN)
+                    kcp->ssthresh = IKCP_THRESH_MIN;
+                kcp->cwnd = kcp->ssthresh + resent;
+                kcp->incr = kcp->cwnd * kcp->mss;
+            }
         }
 
         if (lost)
@@ -1173,9 +1289,9 @@ unsafe partial class Kcp
     }
 
     //---------------------------------------------------------------------
-    // update state (call it repeatedly, every 10ms-100ms), or you can ask 
-    // ikcp_check when to call it again (without ikcp_input/_send calling).
-    // 'current' - current timestamp in millisec. 
+    // update state (call it repeatedly, every 10ms-100ms), or you can ask
+    // ikcp_check when to call it again (if no ikcp_input/_send calls occur).
+    // 'current' - current timestamp in milliseconds.
     //---------------------------------------------------------------------
     public static partial void ikcp_update(KcpContext* kcp, uint current)
     {
@@ -1210,13 +1326,13 @@ unsafe partial class Kcp
 
 
     //---------------------------------------------------------------------
-    // Determine when should you invoke ikcp_update:
-    // returns when you should invoke ikcp_update in millisec, if there 
-    // is no ikcp_input/_send calling. you can call ikcp_update in that
-    // time, instead of call update repeatly.
-    // Important to reduce unnacessary ikcp_update invoking. use it to 
-    // schedule ikcp_update (eg. implementing an epoll-like mechanism, 
-    // or optimize ikcp_update when handling massive kcp connections)
+    // Determines when you should invoke ikcp_update next:
+    // returns the timestamp (in milliseconds) at which you should call
+    // ikcp_update, assuming no ikcp_input/_send calls occur in between.
+    // You can call ikcp_update at that time instead of calling it repeatedly.
+    // Important for reducing unnecessary ikcp_update invocations. Use it to
+    // schedule ikcp_update (e.g., implementing an epoll-like mechanism,
+    // or optimizing ikcp_update when handling massive kcp connections).
     //---------------------------------------------------------------------
     public static partial uint ikcp_check(KcpContext* kcp, uint current)
     {
@@ -1338,4 +1454,46 @@ unsafe partial class Kcp
         ikcp_decode32u((byte*)ptr, &conv);
         return conv;
     }
+
+    //---------------------------------------------------------------------
+    // install congestion control
+    //---------------------------------------------------------------------
+    public static partial int ikcp_setcc(KcpContext* kcp, KcpCongestionControlOperations* ops)
+    {
+        if (kcp is null)
+            throw new ArgumentNullException(nameof(kcp));
+        KcpCongestionControlOperations* ccops = kcp->ccops;
+        delegate* unmanaged[Cdecl]<KcpContext*, void> release;
+        if (ccops is not null && (release = ccops->release) is not null)
+        {
+            release(kcp);
+        }
+        kcp->congest = null;
+        kcp->ccops = ops;
+        if (ops is not null)
+        {
+            delegate* unmanaged[Cdecl]<KcpContext*, int> init = ops->init;
+            if (init is not null)
+            {
+                if (init(kcp) < 0)
+                {
+                    kcp->ccops = null;
+                    kcp->congest = null;
+                    if (kcp->cwnd < 1) kcp->cwnd = 1;
+                    kcp->incr = kcp->cwnd * kcp->mss;
+                    return -1;
+                }
+            }
+        }
+
+        else
+        {
+            if (kcp->cwnd < 1) kcp->cwnd = 1;
+            kcp->incr = kcp->cwnd * kcp->mss;
+            if (kcp->incr < kcp->mss) kcp->incr = kcp->mss;
+        }
+        return 0;
+    }
+
+
 }

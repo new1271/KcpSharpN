@@ -1,6 +1,9 @@
 namespace KcpSharpN.Native;
 
 #pragma warning disable CS1591
+/// <summary>
+/// The enum flags determines what operation will be logged into the function in <see cref="KcpContext.writelog"/>.
+/// </summary>
 public enum KcpLogFlags : int
 {
     None = 0,

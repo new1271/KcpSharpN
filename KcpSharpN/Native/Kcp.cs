@@ -29,14 +29,14 @@ public static unsafe partial class Kcp
     /// </summary>
     /// <param name="conv">
     /// Conversation id.<br/>
-    /// Must equal in two endpoint from the same connection.
+    /// Must equal in both endpoint of the same connection.
     /// </param>
     /// <param name="user">
     /// User defined object.<br/>
     /// It will be passed to the output callback.</param>
     /// <returns></returns>
     /// <remarks>
-    /// The output callback can be setup like this: 'kcp->output = my_udp_output'
+    /// The output callback can be set up like this: 'kcp->output = my_udp_output'
     /// </remarks>
     public static partial KcpContext* ikcp_create(uint conv, void* user);
 
@@ -81,24 +81,23 @@ public static unsafe partial class Kcp
     public static partial void ikcp_update(KcpContext* kcp, uint current);
 
     /// <summary>
-    /// Determine when should you invoke <see cref="ikcp_update(KcpContext*, uint)"/>.
+    /// Determines when you should invoke <see cref="ikcp_update(KcpContext*, uint)"/> next.
     /// </summary>
     /// <param name="kcp">The context will be involved.</param>
     /// <param name="current">Current timestamp in milliseconds</param>
     /// <returns>
-    /// When you should invoke <see cref="ikcp_update(KcpContext*, uint)"/> in milliseconds.<br/>
-    /// If there is no <see cref="ikcp_input(KcpContext*, byte*, nint)"/>/<see cref="ikcp_send(KcpContext*, byte*, int)"/> calling.<br/>
-    /// you can call <see cref="ikcp_update(KcpContext*, uint)"/> in that time, instead of call update repeatly. 
+    /// The timestamp (in milliseconds) at which you should call ikcp_update, assuming no ikcp_input/_send calls occur in between.
     /// </returns>
     /// <remarks>
-    /// Important to reduce unnecessary <see cref="ikcp_update(KcpContext*, uint)"/> invoking. <br/>
-    /// use it to schedule <see cref="ikcp_update(KcpContext*, uint)"/> (eg. implementing an epoll-like mechanism, 
-    /// or optimize <see cref="ikcp_update(KcpContext*, uint)"/> when handling massive kcp connections)
+    /// You can call <see cref="ikcp_update(KcpContext*, uint)"/> at that time instead of calling it repeatedly. <br/>
+    /// Important for reducing unnecessary <see cref="ikcp_update(KcpContext*, uint)"/> invocations. 
+    /// Use it to schedule <see cref="ikcp_update(KcpContext*, uint)"/> <br/>
+    /// (e.g., implementing an epoll-like mechanism, or optimizing <see cref="ikcp_update(KcpContext*, uint)"/> when handling massive kcp connections).
     /// </remarks>
     public static partial uint ikcp_check(KcpContext* kcp, uint current);
 
     /// <summary>
-    /// Inputs packet from the low level (eg. UDP socket).
+    /// When you receive a low-level packet (e.g., UDP packet), call this
     /// </summary>
     /// <param name="kcp">The context will be involved.</param>
     /// <param name="data">The buffer contains data</param>
@@ -144,7 +143,7 @@ public static unsafe partial class Kcp
     public static partial int ikcp_wndsize(KcpContext* kcp, int sndwnd, int rcvwnd);
 
     /// <summary>
-    /// To get how many packet is waiting to be sent
+    /// Get how many packets are waiting to be sent
     /// </summary>
     /// <param name="kcp">The context will be involved.</param>
     /// <returns>The number how many packet has to be sent</returns>
@@ -154,7 +153,7 @@ public static unsafe partial class Kcp
     /// Set enable or disable No-Delay mode.
     /// </summary>
     /// <param name="kcp">The context will be involved.</param>
-    /// <param name="nodelay">0 for disable(default), 1 for enable.</param>
+    /// <param name="nodelay">0 for disable (default), 1 for enable.</param>
     /// <param name="interval">Internal update timer interval in milliseconds, default is 100ms.</param>
     /// <param name="resend">0 for disable fast resend(default), 1 or greater for enable fast resend (the number will be the maximum resend times).</param>
     /// <param name="nc">0 for normal congestion control(default), 1 for disable congestion control.</param>
@@ -164,13 +163,28 @@ public static unsafe partial class Kcp
     /// </remarks>
     public static partial int ikcp_nodelay(KcpContext* kcp, int nodelay, int interval, int resend, int nc);
 
+    /// <summary>
+    /// install congestion control algorithm, <see langword="null"/> restores builtin.
+    /// </summary>
+    public static partial int ikcp_setcc(KcpContext* kcp, KcpCongestionControlOperations *ops);
+
+    /// <summary>
+    /// write log with <paramref name="kcp"/>->writelog.
+    /// </summary>
     public static partial void ikcp_log(KcpContext* kcp, KcpLogFlags mask, string fmt);
 
+    /// <summary>
+    /// write log with <paramref name="kcp"/>->writelog.
+    /// </summary>
     public static partial void ikcp_log(KcpContext* kcp, KcpLogFlags mask, string fmt, params object[] args);
 
-    // setup allocator
+    /// <summary>
+    /// setup allocator
+    /// </summary>
     public static partial void ikcp_allocator(delegate* unmanaged[Cdecl]<nuint, void*> new_malloc, delegate* unmanaged[Cdecl]<void*, void> new_free);
 
-    // read conv
+    /// <summary>
+    /// read conv
+    /// </summary>
     public static partial uint ikcp_getconv(void* ptr);
 }
