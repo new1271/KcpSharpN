@@ -76,7 +76,7 @@
 
 	<PropertyGroup Condition="'$(Configuration)'=='Release'">
 		<Optimize>True</Optimize>
-		<DebugType>pdbonly</DebugType>
+		<DebugType>portable</DebugType>
 		<AccelerateBuildsInVisualStudio>false</AccelerateBuildsInVisualStudio>
 		<ProduceReferenceAssembly>false</ProduceReferenceAssembly>
 		<AllowedReferenceRelatedFileExtensions>
