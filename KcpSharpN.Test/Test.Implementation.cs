@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -10,7 +10,7 @@ namespace KcpSharpN.Test
 {
     unsafe partial class Test
     {
-        [StructLayout(LayoutKind.Explicit, Pack = 8)]
+        [StructLayout(LayoutKind.Explicit)]
         private struct Parameter
         {
             [FieldOffset(0)]

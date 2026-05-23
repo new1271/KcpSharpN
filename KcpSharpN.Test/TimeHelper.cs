@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -152,7 +152,7 @@ namespace KcpSharpN.Test
             public static extern int usleep(nuint usec);
         }
 
-        [StructLayout(LayoutKind.Sequential, Pack = 8)]
+        [StructLayout(LayoutKind.Sequential)]
         private readonly struct TimeVal
         {
             public readonly nint tv_sec;

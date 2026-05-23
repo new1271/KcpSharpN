@@ -1,29 +1,30 @@
-﻿using System.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using InlineMethod;
 
-namespace KcpSharpN.Native
+namespace KcpSharpN.Native;
+
+#pragma warning disable CS1591
+
+public unsafe delegate nuint OffsetCalculateFunc<T>(T* nullptr) where T : unmanaged;
+
+[StructLayout(LayoutKind.Sequential)]
+public unsafe struct KcpQueueHead
 {
-    public unsafe delegate nuint OffsetCalculateFunc<T>(T* nullptr) where T : unmanaged;
+    public KcpQueueHead* prev, next;
 
-    [StructLayout(LayoutKind.Sequential, Pack = 8)]
-    public unsafe struct KcpQueueHead
+    public KcpQueueHead(KcpQueueHead* prev, KcpQueueHead* next)
     {
-        public KcpQueueHead* prev, next;
-
-        public KcpQueueHead(KcpQueueHead* prev, KcpQueueHead* next)
-        {
-            this.prev = prev;
-            this.next = next;
-        }
-
-        [Inline(InlineBehavior.Keep, export: true)]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T* ContainerOf<T>(KcpQueueHead* ptr, nuint offset) where T : unmanaged
-            => (T*)(((byte*)(T*)ptr) - offset);
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static T* ContainerOf<T>(KcpQueueHead* ptr, OffsetCalculateFunc<T> offsetFunc) where T : unmanaged => ContainerOf(ptr, offsetFunc);
+        this.prev = prev;
+        this.next = next;
     }
+
+    [Inline(InlineBehavior.Keep, export: true)]
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T* ContainerOf<T>(KcpQueueHead* ptr, nuint offset) where T : unmanaged
+        => (T*)(((byte*)(T*)ptr) - offset);
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T* ContainerOf<T>(KcpQueueHead* ptr, OffsetCalculateFunc<T> offsetFunc) where T : unmanaged => ContainerOf(ptr, offsetFunc);
 }
