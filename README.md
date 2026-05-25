@@ -1,4 +1,12 @@
-# KcpSharpN [![NuGet package](https://img.shields.io/nuget/v/KcpSharpN.svg?logo=NuGet)](https://www.nuget.org/packages/KcpSharpN)
+# KcpSharpN [![Powered][4]][1] [![GitHub license][5]][2] [![NuGet package][6]][3]
+
+[1]: https://github.com/skywind3000/kcp
+[2]: https://github.com/new1271/KcpSharpN/blob/master/LICENSE
+[3]: https://www.nuget.org/packages/KcpSharpN
+[4]: https://github.com/skywind3000/kcp/raw/master/kcp.svg
+[5]: https://img.shields.io/badge/license-MIT-blue.svg
+[6]: https://img.shields.io/nuget/v/KcpSharpN.svg?logo=NuGet
+
 [中文版](https://github.com/new1271/KcpSharpN/blob/master/README.zh.md) 
 ## Introduction
 KcpSharpN is a C# implementation translated from [the original KCP project](https://github.com/skywind3000/kcp)<br/>
