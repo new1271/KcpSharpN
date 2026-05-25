@@ -1,4 +1,12 @@
-# KcpSharpN  [![NuGet package](https://img.shields.io/nuget/v/KcpSharpN.svg?logo=NuGet)](https://www.nuget.org/packages/KcpSharpN)
+# KcpSharpN [![Powered][4]][1] [![GitHub license][5]][2] [![NuGet package][6]][3]
+
+[1]: https://github.com/skywind3000/kcp
+[2]: https://github.com/new1271/KcpSharpN/blob/master/LICENSE
+[3]: https://www.nuget.org/packages/KcpSharpN
+[4]: https://github.com/skywind3000/kcp/raw/master/kcp.svg
+[5]: https://img.shields.io/badge/license-MIT-blue.svg
+[6]: https://img.shields.io/nuget/v/KcpSharpN.svg?logo=NuGet
+
 [English version](https://github.com/new1271/KcpSharpN/blob/master/README.md) <br/>
 ## 簡介
 KcpSharpN 是一個基於 [原始 KCP 專案](https://github.com/skywind3000/kcp) 的程式碼並手動翻譯成 C# 版本的協定實現程式庫<br/>
