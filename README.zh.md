@@ -1,7 +1,15 @@
-# KcpSharpN
+# KcpSharpN [![Powered][4]][1] [![GitHub license][5]][2] [![NuGet package][6]][3]
+
+[1]: https://github.com/skywind3000/kcp
+[2]: https://github.com/new1271/KcpSharpN/blob/master/LICENSE
+[3]: https://www.nuget.org/packages/KcpSharpN
+[4]: https://github.com/skywind3000/kcp/raw/master/kcp.svg
+[5]: https://img.shields.io/badge/license-MIT-blue.svg
+[6]: https://img.shields.io/nuget/v/KcpSharpN.svg?logo=NuGet
+
 [English version](https://github.com/new1271/KcpSharpN/blob/master/README.md) <br/>
-## Â²¤¶
-KcpSharpN ¬O¤@­Ó°ò©ó [­ì©l KCP ±M®×](https://github.com/skywind3000/kcp) ªºµ{¦¡½X¨Ã¤â°ÊÂ½Ä¶¦¨ C# ª©¥»ªº¨ó©w¹ê²{µ{¦¡®w<br/>
-## ¤°»ò¬O KCP
-KCP ¬O¤@­Ó§Ö³t¥i¾aªº¨ó©w¡C¾Ú­ì§@ªÌ©Ò¨¥¡A¬Û¸û©óTCP¡A¥¦¯à³q¹L®ö¶O 10%-20% ÀW¼e¬°¥N»ù¡A´«¨ú¥­§¡©µ¿ğ­°§C 30%-40%¡A¥B³Ì¤j©µ¿ğ­°§C¤T­¿ªº¶Ç¿é®ÄªG¡C<br/><br/>
-·Q¤F¸Ñ§ó¦h¸ê°T¡A¥i¥H¬d¬İ KCP ±M®×©xºôªº[¤å¥ó](https://github.com/skywind3000/kcp/wiki/Home).
+## ç°¡ä»‹
+KcpSharpN æ˜¯ä¸€å€‹åŸºæ–¼ [åŸå§‹ KCP å°ˆæ¡ˆ](https://github.com/skywind3000/kcp) çš„ç¨‹å¼ç¢¼ä¸¦æ‰‹å‹•ç¿»è­¯æˆ C# ç‰ˆæœ¬çš„å”å®šå¯¦ç¾ç¨‹å¼åº«<br/>
+## ä»€éº¼æ˜¯ KCP
+KCP æ˜¯ä¸€å€‹å¿«é€Ÿå¯é çš„å”å®šã€‚æ“šåŸä½œè€…æ‰€è¨€ï¼Œç›¸è¼ƒæ–¼TCPï¼Œå®ƒèƒ½é€šéæµªè²» 10%-20% é »å¯¬ç‚ºä»£åƒ¹ï¼Œæ›å–å¹³å‡å»¶é²é™ä½ 30%-40%ï¼Œä¸”æœ€å¤§å»¶é²é™ä½ä¸‰å€çš„å‚³è¼¸æ•ˆæœã€‚<br/><br/>
+æƒ³äº†è§£æ›´å¤šè³‡è¨Šï¼Œå¯ä»¥æŸ¥çœ‹ KCP å°ˆæ¡ˆå®˜ç¶²çš„[æ–‡ä»¶](https://github.com/skywind3000/kcp/wiki/Home).
