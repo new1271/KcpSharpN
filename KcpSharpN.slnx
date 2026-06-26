@@ -1,0 +1,18 @@
+<Solution>
+  <Configurations>
+    <Platform Name="Any CPU" />
+    <Platform Name="x64" />
+  </Configurations>
+  <Folder Name="/方案項目/">
+    <File Path=".editorconfig" />
+    <File Path="LICENSE" />
+    <File Path="README.md" />
+    <File Path="README.zh.md" />
+  </Folder>
+  <Project Path="KcpSharpN.Test/KcpSharpN.Test.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+  <Project Path="KcpSharpN/KcpSharpN.csproj">
+    <Platform Solution="*|x64" Project="x64" />
+  </Project>
+</Solution>
